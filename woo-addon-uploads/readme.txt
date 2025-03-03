@@ -3,8 +3,8 @@ Contributors: ImagiSol, dhruvin
 Donate link: https://www.paypal.me/DhruvinS
 Tags: woocommerce, addon, uploads, woocommerce file upload, file upload, print on demand, woocommerce product addons, product addons
 Requires at least: 5.0
-Tested up to: 6.6
-Stable tag: trunk
+Tested up to: 6.7
+Stable tag: 1.7.2
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -82,6 +82,11 @@ The manual installation method involves downloading our eCommerce plugin and upl
 4. Link of media once order received
 
 == Changelog ==
+
+= 1.7.2 (02.03.2025) =
+* Security Enhancement: Changed the way the uploaded files were handled after being uploaded by end users.
+* Some PHPCS fixes.
+* Tested upto latest WordPress and WooCommerce versions.
 
 = 1.7.1 (12.01.2024) =
 * Added an improvement for compatibility with Product Options and Price Calculation Formulas for WooCommerce

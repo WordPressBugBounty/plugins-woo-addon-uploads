@@ -48,7 +48,7 @@ if ( ! class_exists( 'Wau_Pro_Features' ) ) {
 				<section class="top-section plugin_header">
 					<div class="header-part">
 						<div class="header-left">
-							<img src=" <?php echo esc_url( $json['plugin_header']['image'] ); ?> " alt="">
+							<img src="<?php echo esc_url( $json['plugin_header']['image'] ); ?> " alt="">
 						</div>
 						<div class="header-right">
 							<h1><?php echo esc_html( $json['plugin_header']['title'] ); ?></h1>

@@ -347,7 +347,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 						array(
 							'action' => 'wau_secure_download',
 							'file'   => esc_html( $addon_id['file_name'] ),
-							'nonce'  => wp_create_nonce( 'wau_secure_download' ),
+							// 'nonce'  => wp_create_nonce( 'wau_secure_download' ),
 						),
 						admin_url( 'admin-post.php' )
 					);
@@ -396,7 +396,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 						array(
 							'action' => 'wau_secure_download',
 							'file'   => esc_html( $addon_id['file_name'] ),
-							'nonce'  => wp_create_nonce( 'wau_secure_download' ),
+							// 'nonce'  => wp_create_nonce( 'wau_secure_download' ),
 						),
 						admin_url( 'admin-post.php' )
 					);
@@ -491,7 +491,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 */
 		public function wau_secure_file_download() {
 			$getdata = wp_unslash( $_GET );
-			if ( isset( $getdata['file'] ) && wp_verify_nonce( $getdata['nonce'], 'wau_secure_download' ) ) {
+			if ( isset( $getdata['file'] ) /*&& wp_verify_nonce( $getdata['nonce'], 'wau_secure_download' )*/ ) {
 				$file_path = wp_upload_dir()['basedir'] . '/wau-uploads/' . basename( $getdata['file'] );
 
 				if ( file_exists( $file_path ) ) {
@@ -500,6 +500,8 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					header( 'Content-Length: ' . filesize( $file_path ) );
 					readfile( $file_path ); // phpcs:ignore
 					exit;
+				} else {
+					wp_die( esc_html__( 'File is not exits.', 'woo-addon-uploads' ) );
 				}
 			}
 

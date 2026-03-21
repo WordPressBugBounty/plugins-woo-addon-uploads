@@ -3,7 +3,7 @@
  * Plugin Name: File Uploads Addon for WooCommerce
  * Plugin URI: https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/
  * Description: WooCommerce addon to upload additional files before adding product to cart
- * Version: 1.7.3
+ * Version: 1.7.4
  * Author: Imaginate Solutions
  * Author URI: https://imaginate-solutions.com
  * License: GPLv2 or later
@@ -12,9 +12,9 @@
  * Text Domain: woo-addon-uploads
  * Domain Path: /i18n/languages/
  *
- * Requires PHP: 5.6
+ * Requires PHP: 7.4
  * WC requires at least: 3.0.0
- * WC tested up to: 8.4
+ * WC tested up to: 10.6
  *
  * @package WooCommerce Addon Uploads
  * @author Dhruvin Shah
@@ -39,7 +39,7 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 		 *
 		 * @var      string    $version    The current version of the plugin.
 		 */
-		protected $version = '1.7.3';
+		protected $version = '1.7.4';
 
 		/**
 		 * Default construtor function.

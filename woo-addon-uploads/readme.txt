@@ -1,66 +1,124 @@
 ﻿=== File Uploads Addon for WooCommerce ===
 Contributors: ImagiSol, dhruvin
 Donate link: https://www.paypal.me/DhruvinS
-Tags: woocommerce, addon, uploads, woocommerce file upload, file upload, print on demand, woocommerce product addons, product addons
+Tags: woocommerce file upload, file upload, product addons, woocommerce addon, print on demand
 Requires at least: 5.0
 Tested up to: 6.9
-Stable tag: 1.7.3
+Stable tag: 1.7.4
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
-Allow users to upload files from the product page while adding products to the cart. Useful for many stores that require images or other information from customers in the form of files.
+Let customers upload files directly on your WooCommerce product page — no more chasing emails for artwork, logos, prescriptions, or documents.
 
 == Description ==
 
-[File Uploads Addon for WooCommerce](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/) is a plugin for WooCommerce for enabling end users to upload custom image files while adding Products to Cart. End users or customers can upload files from WooCommerce Product pages.
+**Stop chasing customers for files. Let them upload everything you need — right on the product page.**
 
-Typical use cases include an online shop with a Print on demand feature where customers would upload images that would be printed on products such as Coffee Mugs, Picture Frames, T-Shirts to many other items.
+[File Uploads Addon for WooCommerce](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/) adds a file upload field to your WooCommerce product pages so customers can attach images, documents, or any files you need to fulfill their order — all before they even hit the cart.
 
-The file upload feature helps store owners to capture additional information from their customers and helps to save considerable time in preparing the Order for customers without waiting for additional information that might be required.
+No more back-and-forth emails. No delayed orders. No missing artwork.
 
-> I was able to install this plugin and have a **file upload feature** on all my products. Tested and working well! It’s a **great useful feature** for WooCommerce.
->
-> Thanks very much!
+The uploaded file travels with the order — visible in the cart, on the checkout page, and right inside the WooCommerce order details screen for you or your shop manager to action immediately.
 
-> **Lovely! It works just as shown**
-> - [vincentfijian](https://wordpress.org/support/topic/lovely-it-works-just-as-shown/)
+= 🛍️ Who Is This For? =
 
-Through this plugin, the end user or customer can upload image files needed for WooCommerce store owners to complete the order. It reduces the time needed for WooCommerce store owners doing back and forth with the customer.
+This plugin is built for any WooCommerce store where fulfilling an order depends on something the customer needs to provide. If you've ever had to email a customer after they ordered to ask for a file, this plugin is for you.
 
-The plugin has the provisions to select **WooCommerce Product Categories** for which the file upload must be available.
+**Print on Demand & Custom Products**
+* T-shirt printing — customers upload their design or logo
+* Coffee mug / drinkware printing — upload photos or artwork
+* Phone case printing — upload personal images
+* Canvas / poster printing — upload high-resolution photos
+* Embroidery & apparel — upload brand logos or monograms
+* Custom tote bags, hats, or uniforms
 
-Uploaded file preview will be available on cart and checkout pages as well.
+**Personalized Gifts & Keepsakes**
+* Photo books and albums — upload images for each page
+* Custom jewelry engraving — upload signature or artwork files
+* Personalized portrait or pet paintings — upload reference photos
+* Memorial products — upload photos of loved ones or pets
+* Greeting cards and invitations — upload event photos
 
-An Admin or a Shop Manager can view the file that has been uploaded against each order item by visiting the order details page.
+**Professional & B2B Services**
+* Graphic design services — upload client briefs or reference files
+* Document translation — upload the original document
+* Video editing — upload raw footage or scripts
+* Resume / CV writing services — upload existing resume
+* Legal document review — upload the document for review
+* Accounting & tax services — upload financial statements or invoices
 
-File Uploads Addon for WooCommerce is compatible with HPOS
+**Healthcare & Wellness**
+* Prescription eyeglasses or contact lenses — upload prescription scan
+* Custom orthotics or medical devices — upload prescription or referral
+* Supplement or medication stores — upload doctor's note if required
+* Dietary consultation — upload test reports or diet history
 
-For any suggestions and customizations please create a ticket [here](https://imaginatesolutions.freshdesk.com/support/tickets/new) and we shall get back to you as soon as possible.
+**Crafts, Decor & Home**
+* Custom wallpaper or wall murals — upload room measurements or design
+* Personalized home decor (doormats, cushions, frames) — upload photos
+* Custom furniture upholstery — upload fabric swatches or design files
+* Laser-cut / CNC products — upload SVG or design files
 
-**[File Uploads Addon for WooCommerce Pro](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/)**
+**Education & Digital Products**
+* Tutoring services — upload past test papers or assignments
+* Certification courses — upload prerequisite documents
+* Coaching programs — upload intake forms or assessments
 
-= Features of Pro Version: =
+**Fashion & Apparel**
+* Tailoring or bespoke clothing — upload measurements or reference photos
+* School uniforms with logos — upload logo files
+* Sports team kits — upload team logo and roster documents
 
-* *Per Product Configuration*: Enable or disable file uploads on specific WooCommerce products, giving you full control over which products allow uploads.
-* *Multiple File Uploads*: Allow customers to select and upload multiple files with ease, enhancing their shopping experience.
-* *File Size Validation*: Set maximum file size limits to ensure that uploaded files meet your requirements, preventing excessive server load and ensuring smooth processing.
-* *Image Resolution Validation*: Define maximum and minimum resolutions for images to be uploaded, maintaining quality standards and preventing low-resolution images from being submitted.
-* Compatibility with *WCFM Multivendor Plugin*: Seamlessly integrate with the WCFM Multivendor plugin for WooCommerce, enabling vendors to offer file upload capabilities on their products.
-* *Additional Instructions*: Provide a dedicated text area for customers to share specific instructions or details with admin or shop managers during the checkout process, enhancing communication and order fulfillment.
-* *Email Attachments*: Automatically include uploaded files as attachments in admin notification emails, ensuring that you have immediate access to customer-submitted files for further processing or review.
-* *Image Preview*: Display a preview of uploaded images directly on the product page, allowing customers to visualize their selections before completing their purchase, improving engagement and reducing uncertainty.
+**Other Use Cases**
+* Vehicle wraps & signage — upload design files or brand guidelines
+* Wedding services — upload inspiration photos, seating charts
+* Pet accessories — upload pet photos for custom products
+* Subscription boxes — upload preferences or onboarding documents
+* Any product requiring proof of ID, license, or certification
 
-= Our other plugins =
+= File Uploads Addon for WooCommerce Features =
 
-* [Custom Shipping Methods for WooCommerce](https://imaginate-solutions.com/downloads/custom-shipping-methods-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme/) - Create custom shipping methods for your WooCommerce store and manage dynamic shipping with ease.
+* **File upload field on product pages** — customers can upload files while adding products to cart
+* **Thumbnail preview in cart and checkout** — customers can confirm their uploaded file before placing the order
+* **Order details integration** — uploaded files are linked directly in the WooCommerce order screen for easy admin access
+* **Category-level control** — enable file uploads for specific WooCommerce product categories
+* **Filter hook for product-level control** — developers can restrict uploads to specific product IDs using a simple code snippet
+* **WooCommerce Blocks compatible** — works with the modern Cart and Checkout block experience
+* **HPOS compatible** — fully compatible with WooCommerce High-Performance Order Storage
+* **PHP 8.2 compatible**
 
-* [Custom Payment Gateways for WooCommerce](https://imaginate-solutions.com/downloads/custom-payment-gateways-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme/) - Create custom payment gateways for your WooCommerce store to add more payment options for the user to choose from.
+= ⭐ Upgrade to Pro =
 
-* [Payment Gateways by User Roles for WooCommerce](https://imaginate-solutions.com/downloads/payment-gateways-by-user-roles-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme/) - Allow payment gateways to be available or not available for only particular user roles.
+The free version gives you a solid foundation. [File Uploads Addon Pro](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/) takes it further:
 
-* [Variations Radio Buttons for WooCommerce](https://imaginate-solutions.com/downloads/variations-radio-buttons-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme/) - Convert your variations dropdown into radio buttons there by allowing customers a much better user experience and speeding up the checkout process.
+* **Per-product on/off toggle** — enable or disable file uploads on individual products from the product edit screen, no code needed
+* **Multiple file uploads** — let customers upload more than one file per product (ideal for multi-page documents, multiple angles, or design variations)
+* **File size validation** — set a maximum file size to protect your server and keep uploads manageable
+* **Image resolution validation** — define minimum and maximum resolution limits so you only receive print-ready files
+* **Customer instruction field** — add a text area for customers to leave specific notes or instructions alongside their upload (great for customization details)
+* **Email attachments** — uploaded files are automatically attached to the new order notification email so you have everything in one place
+* **On-page image preview** — customers see a live preview of their uploaded image on the product page before adding to cart, reducing errors and returns
+* **WCFM Multivendor compatibility** — vendors on your marketplace can each offer file uploads on their own products
 
-* [WooCommerce Variations Reports](https://imaginate-solutions.com/downloads/woocommerce-variations-reports/?utm_source=wporg&utm_medium=fua&utm_campaign=readme/) - Get a report of how your variations sales are happening on your WooCommerce Store.
+[Get Pro →](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/)
+
+= What Store Owners Say =
+
+> "I was able to install this plugin and have a file upload feature on all my products. Tested and working well! It's a great useful feature for WooCommerce. Thanks very much!"
+
+> "Lovely! It works just as shown." — [vincentfijian](https://wordpress.org/support/topic/lovely-it-works-just-as-shown/)
+
+= Need Help? =
+
+For support, feature requests, or customization inquiries, [open a support ticket here](https://imaginatesolutions.freshdesk.com/support/tickets/new) and we'll get back to you as soon as possible.
+
+= Our Other WooCommerce Plugins =
+
+* [Custom Shipping Methods for WooCommerce](https://imaginate-solutions.com/downloads/custom-shipping-methods-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme) — Create custom shipping methods with dynamic pricing rules.
+* [Custom Payment Gateways for WooCommerce](https://imaginate-solutions.com/downloads/custom-payment-gateways-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme) — Add custom offline or manual payment options to your store.
+* [Payment Gateways by User Roles for WooCommerce](https://imaginate-solutions.com/downloads/payment-gateways-by-user-roles-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme) — Show or hide payment methods based on the customer's user role.
+* [Variations Radio Buttons for WooCommerce](https://imaginate-solutions.com/downloads/variations-radio-buttons-for-woocommerce/?utm_source=wporg&utm_medium=fua&utm_campaign=readme) — Replace variation dropdowns with radio buttons for a faster checkout experience.
+* [WooCommerce Variations Reports](https://imaginate-solutions.com/downloads/woocommerce-variations-reports/?utm_source=wporg&utm_medium=fua&utm_campaign=readme) — See exactly which product variations are selling best.
 
 == Installation ==
 
@@ -82,6 +140,9 @@ The manual installation method involves downloading our eCommerce plugin and upl
 4. Link of media once order received
 
 == Changelog ==
+
+= 1.7.4 (20.03.2026) =
+* Security fix: Added nonce validation when downloading files from the admin panel.
 
 = 1.7.3 (20.03.2025) =
 * Fixed issue related to unauthorized access from admin panel.
@@ -138,16 +199,43 @@ The manual installation method involves downloading our eCommerce plugin and upl
 
 == Frequently Asked Questions ==
 
-= How to allow file upload only on specific products? =
+= Does this work with the WooCommerce Cart and Checkout blocks? =
 
-Add the below code in your theme functions.php file or Code Snippets plugin.
+Yes. File Uploads Addon is fully compatible with the modern WooCommerce Cart and Checkout block experience introduced in WooCommerce 7+.
+
+= Is this compatible with WooCommerce HPOS? =
+
+Yes, the plugin is fully compatible with WooCommerce High-Performance Order Storage (HPOS).
+
+= Can I enable file uploads for only certain products? =
+
+The free version supports category-level control (from WooCommerce Settings) and also supports a developer filter to restrict uploads to specific product IDs:
+
 `
 add_filter( 'wau_include_product_ids', 'wau_include_only_product', 10, 1 );
 
 function wau_include_only_product( $pids ) {
-	return array( 310, 315 ); // Add the product ID's here in the array.
+    return array( 310, 315 ); // Add your product IDs here
 }
 `
+
+For a no-code per-product toggle, upgrade to the [Pro version](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/).
+
+= Can customers upload multiple files? =
+
+Multiple file uploads are available in the [Pro version](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/).
+
+= Where can I view uploaded files as an admin? =
+
+Uploaded files appear directly on the WooCommerce order details screen. In the Pro version, files are also sent as email attachments with the new order notification.
+
+= What file types are supported? =
+
+The plugin supports image file uploads. For broader file type support or file size/resolution controls, see the [Pro version](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/).
+
+= Is this compatible with PHP 8.2? =
+
+Yes, full compatibility with PHP 8.2 was added in version 1.7.0.
 
 == Upgrade Notice ==
 

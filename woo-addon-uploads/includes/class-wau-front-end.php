@@ -347,7 +347,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 						array(
 							'action' => 'wau_secure_download',
 							'file'   => esc_html( $addon_id['file_name'] ),
-							// 'nonce'  => wp_create_nonce( 'wau_secure_download' ),
+							'nonce'  => wp_create_nonce( 'wau_secure_download' ),
 						),
 						admin_url( 'admin-post.php' )
 					);
@@ -396,7 +396,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 						array(
 							'action' => 'wau_secure_download',
 							'file'   => esc_html( $addon_id['file_name'] ),
-							// 'nonce'  => wp_create_nonce( 'wau_secure_download' ),
+							'nonce'  => wp_create_nonce( 'wau_secure_download' ),
 						),
 						admin_url( 'admin-post.php' )
 					);
@@ -491,7 +491,20 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 */
 		public function wau_secure_file_download() {
 			$getdata = wp_unslash( $_GET );
-			if ( isset( $getdata['file'] ) /*&& wp_verify_nonce( $getdata['nonce'], 'wau_secure_download' )*/ ) {
+
+			$has_valid_nonce = (
+				isset( $getdata['nonce'] ) &&
+				wp_verify_nonce( $getdata['nonce'], 'wau_secure_download' )
+			);
+
+			$is_admin_allowed = (
+				is_user_logged_in() &&
+				current_user_can( 'manage_woocommerce' )
+			);
+
+			// Allow if nonce is valid OR admin user
+			if ( isset( $getdata['file'] ) && ( $has_valid_nonce || $is_admin_allowed ) ) {
+
 				$file_path = wp_upload_dir()['basedir'] . '/wau-uploads/' . basename( $getdata['file'] );
 
 				if ( file_exists( $file_path ) ) {

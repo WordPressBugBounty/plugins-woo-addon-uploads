@@ -3,29 +3,34 @@
  * Plugin Name: File Uploads Addon for WooCommerce
  * Plugin URI: https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/
  * Description: WooCommerce addon to upload additional files before adding product to cart
- * Version: 1.7.4
+ * Version: 1.7.5
  * Author: Imaginate Solutions
  * Author URI: https://imaginate-solutions.com
  * License: GPLv2 or later
  * License URI: http://www.gnu.org/licenses/gpl-2.0.html
- *
+ * Requires Plugins: woocommerce
+ * WC requires at least: 8.0.0
  * Text Domain: woo-addon-uploads
  * Domain Path: /i18n/languages/
  *
  * Requires PHP: 7.4
  * WC requires at least: 3.0.0
- * WC tested up to: 10.6
+ * WC tested up to: 11
  *
  * @package WooCommerce Addon Uploads
  * @author Dhruvin Shah
  */
 
-if ( ! class_exists( 'woo_add_uplds' ) ) {
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+if ( ! class_exists( 'Woo_Add_Uplds' ) ) {
 
 	/**
 	 * Addon Uploads Class.
 	 */
-	class woo_add_uplds {
+	class Woo_Add_Uplds {
 
 		/**
 		 * WooCommerce Addon Uploads.
@@ -39,7 +44,7 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 		 *
 		 * @var      string    $version    The current version of the plugin.
 		 */
-		protected $version = '1.7.4';
+		protected $version = '1.7.5';
 
 		/**
 		 * Default construtor function.
@@ -68,12 +73,20 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 		 * @since   1.6.0
 		 */
 		public function is_plugin_active( $plugin ) {
-			return ( function_exists( 'is_plugin_active' ) ? is_plugin_active( $plugin ) :
-			(
-				in_array( $plugin, apply_filters( 'active_plugins', (array) get_option( 'active_plugins', array() ) ), true ) ||
-				( is_multisite() && array_key_exists( $plugin, (array) get_site_option( 'active_sitewide_plugins', array() ) ) )
-			)
-			);
+
+			$active_plugins = (array) get_option( 'active_plugins', array() );
+
+			if ( in_array( $plugin, $active_plugins, true ) ) {
+				return true;
+			}
+
+			if ( is_multisite() ) {
+				$network_plugins = (array) get_site_option( 'active_sitewide_plugins', array() );
+
+				return isset( $network_plugins[ $plugin ] );
+			}
+
+			return false;
 		}
 
 		/**
@@ -88,11 +101,12 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 		/**
 		 * Define constant if not already set.
 		 *
-		 * @param  string $name
-		 * @param  string|bool $value
+		 * @param string      $name Name.
+		 * @param string|bool $value Value.
 		 */
 		private function define( $name, $value ) {
 			if ( ! defined( $name ) ) {
+				// phpcs:ignore.
 				define( $name, $value );
 			}
 		}
@@ -100,7 +114,7 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 		/**
 		 * Load dependencies
 		 */
-		private function load_dependencies(){
+		private function load_dependencies() {
 			require_once 'includes/class-wau-admin.php';
 			require_once 'includes/class-wau-front-end.php';
 			require_once 'includes/class-wau-pro-features.php';
@@ -125,6 +139,9 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 			add_action( 'before_woocommerce_init', array( $this, 'wau_declare_hpos_compatibility' ) );
 		}
 
+		/**
+		 * Declare HPOS compatibility
+		 */
 		public function wau_declare_hpos_compatibility() {
 			if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
 				\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
@@ -154,9 +171,8 @@ if ( ! class_exists( 'woo_add_uplds' ) ) {
 
 			$front_end_class = new wau_front_end_class();
 		}
-
 	}
 
 }
 
-$woo_add_uplds = new woo_add_uplds();
+new Woo_Add_Uplds();

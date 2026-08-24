@@ -8,6 +8,10 @@
  * @package     WooCommerce Addon Uploads
  */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 if ( ! class_exists( 'Wau_Pro_Features' ) ) {
 
 	/**
@@ -177,8 +181,7 @@ if ( ! class_exists( 'Wau_Pro_Features' ) ) {
 
 			<?php
 		}
-
 	}
 }
 
-$features = new Wau_Pro_Features();
+new Wau_Pro_Features();

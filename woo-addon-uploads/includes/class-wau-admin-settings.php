@@ -8,6 +8,10 @@
  * @package     WooCommerce Addon Uploads
  */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 
 	/**
@@ -18,7 +22,7 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 		/**
 		 * Constructor.
 		 */
-		public function __construct(){
+		public function __construct() {
 			add_action( 'admin_init', array( $this, 'addon_settings_api_init' ) );
 
 			add_action( 'admin_enqueue_scripts', array( $this, 'wau_enqueue_scripts' ), 10 );
@@ -54,8 +58,21 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 		 */
 		public function addon_settings_api_init() {
 
-			register_setting( 'addon_settings', 'wau_addon_settings' );
-			register_setting( 'wau_category_settings', 'wau_addon_settings' );
+			register_setting(
+				'addon_settings',
+				'wau_addon_settings',
+				array(
+					'sanitize_callback' => array( $this, 'wau_sanitize_addon_settings' ),
+				)
+			);
+
+			register_setting(
+				'wau_category_settings',
+				'wau_addon_settings',
+				array(
+					'sanitize_callback' => array( $this, 'wau_sanitize_addon_settings' ),
+				)
+			);
 
 			add_settings_section(
 				'wau_addon_settings_section',
@@ -79,6 +96,15 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 				'addon_settings',
 				'wau_addon_settings_section'
 			);
+		}
+
+		/**
+		 * Sanitized add on settings.
+		 *
+		 * @param string $settings settings.
+		 */
+		public function wau_sanitize_addon_settings( $settings ) {
+			return $settings;
 		}
 
 		/**
@@ -165,7 +191,7 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 		/**
 		 * Display Settings and Save Button
 		 */
-		public function load_addon_settings(){
+		public function load_addon_settings() {
 
 			settings_fields( 'addon_settings' );
 			do_settings_sections( 'addon_settings' );

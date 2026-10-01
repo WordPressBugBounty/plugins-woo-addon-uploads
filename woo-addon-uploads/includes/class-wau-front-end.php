@@ -24,6 +24,13 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 	 */
 	class wau_front_end_class {
 
+		/**
+		 * Resolved private upload directory for the current request.
+		 *
+		 * @var array|null
+		 */
+		private $private_upload_directory_cache = null;
+
 		public function __construct() {
 
 			require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -33,7 +40,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			$this->load_scripts();
 			add_action( 'woocommerce_before_add_to_cart_button', array( $this, 'addon_uploads_section' ), 999 );
 
-			add_filter( 'woocommerce_add_cart_item_data', array( $this, 'wau_add_cart_item_data' ), 10, 1 );
+			add_filter( 'woocommerce_add_cart_item_data', array( $this, 'wau_add_cart_item_data' ), 10, 4 );
 			add_filter( 'woocommerce_get_cart_item_from_session', array( $this, 'wau_get_cart_item_from_session' ), 10, 2 );
 			add_filter( 'woocommerce_get_item_data', array( $this, 'wau_get_item_data' ), 10, 2 );
 			add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'wau_add_item_meta_url' ), 10, 3 );
@@ -47,6 +54,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			add_action( 'admin_post_nopriv_wau_secure_download', array( $this, 'wau_secure_file_download' ) );
 			add_action( 'init', array( $this, 'wau_ensure_upload_directory_protection' ) );
 			add_action( 'init', array( $this, 'wau_maybe_migrate_legacy_uploads' ), 20 );
+			add_action( 'init', array( $this, 'wau_maybe_cleanup_abandoned_uploads' ), 30 );
 		}
 
 		/**
@@ -164,10 +172,6 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 * @return void
 		 */
 		public function wau_maybe_migrate_legacy_uploads() {
-			if ( get_option( 'wau_legacy_upload_migration_complete' ) ) {
-				return;
-			}
-
 			$private_upload_dir = $this->wau_get_private_upload_directory();
 			$legacy_upload_dir  = $this->wau_get_legacy_upload_directory();
 
@@ -225,7 +229,10 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				$destination = trailingslashit( $private_path ) . $file_name;
 
 				if ( file_exists( $destination ) ) {
-					if ( filesize( $source ) === filesize( $destination ) ) {
+					$source_hash      = is_readable( $source ) ? hash_file( 'sha256', $source ) : false;
+					$destination_hash = is_readable( $destination ) ? hash_file( 'sha256', $destination ) : false;
+
+					if ( $source_hash && $destination_hash && hash_equals( $source_hash, $destination_hash ) ) {
 						wp_delete_file( $source );
 					} else {
 						$remaining = true;
@@ -268,6 +275,42 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		}
 
 		/**
+		 * Add defense-in-depth protection files to a storage directory.
+		 *
+		 * @param string $directory Directory path.
+		 * @return void
+		 */
+		private function wau_write_storage_protection_files( $directory ) {
+			global $wp_filesystem;
+
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+
+			WP_Filesystem();
+
+			if ( ! $wp_filesystem || ! is_dir( $directory ) ) {
+				return;
+			}
+
+			$directory = trailingslashit( $directory );
+			$htaccess = $directory . '.htaccess';
+			$web_config = $directory . 'web.config';
+
+			if ( ! file_exists( $htaccess ) || $wp_filesystem->get_contents( $htaccess ) !== $this->wau_get_htaccess_content() ) {
+				$wp_filesystem->put_contents( $htaccess, $this->wau_get_htaccess_content(), FS_CHMOD_FILE );
+			}
+
+			if ( ! file_exists( $web_config ) || $wp_filesystem->get_contents( $web_config ) !== $this->wau_get_web_config_content() ) {
+				$wp_filesystem->put_contents( $web_config, $this->wau_get_web_config_content(), FS_CHMOD_FILE );
+			}
+
+			if ( ! file_exists( $directory . 'index.php' ) ) {
+				$wp_filesystem->put_contents( $directory . 'index.php', '<?php // Silence is golden', FS_CHMOD_FILE );
+			}
+		}
+
+		/**
 		 * Get the public legacy upload directory.
 		 *
 		 * @since 1.7.5
@@ -298,6 +341,10 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 * @return array
 		 */
 		private function wau_get_private_upload_directory() {
+			if ( is_array( $this->private_upload_directory_cache ) ) {
+				return $this->private_upload_directory_cache;
+			}
+
 			$site_key       = $this->wau_get_site_storage_key();
 			$configured_dir = defined( 'WAU_PRIVATE_UPLOAD_DIR' ) ? WAU_PRIVATE_UPLOAD_DIR : '';
 			$configured_dir = apply_filters( 'wau_private_upload_dir', $configured_dir, $site_key );
@@ -305,7 +352,10 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 
 			if ( ! empty( $configured_dir ) ) {
 				$configured_dir = trailingslashit( $configured_dir );
-				$candidates[]   = $site_key === basename( untrailingslashit( wp_normalize_path( $configured_dir ) ) ) ? $configured_dir : $configured_dir . $site_key . '/';
+
+				if ( $this->wau_is_absolute_path( $configured_dir ) ) {
+					$candidates[] = $site_key === basename( untrailingslashit( wp_normalize_path( $configured_dir ) ) ) ? $configured_dir : $configured_dir . $site_key . '/';
+				}
 			}
 
 			$default_base_dir = $this->wau_get_default_private_upload_base();
@@ -322,23 +372,29 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					continue;
 				}
 
-				if ( $this->wau_prepare_upload_directory( $candidate ) ) {
+				if ( $this->wau_prepare_upload_directory( $candidate ) && ! $this->wau_is_public_path( $candidate ) ) {
+					$this->wau_write_storage_protection_files( $candidate );
 					update_option( 'wau_private_uploads_available', 'yes', false );
 					update_option( 'wau_private_uploads_path', $candidate, false );
 
-					return array(
+					$this->private_upload_directory_cache = array(
 						'path' => $candidate,
 						'url'  => '',
 					);
+
+					return $this->private_upload_directory_cache;
 				}
 			}
 
 			update_option( 'wau_private_uploads_available', 'no', false );
+			update_option( 'wau_private_uploads_path', '', false );
 
-			return array(
+			$this->private_upload_directory_cache = array(
 				'path' => '',
 				'url'  => '',
 			);
+
+			return $this->private_upload_directory_cache;
 		}
 
 		/**
@@ -359,13 +415,10 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				);
 			}
 
-			$legacy_upload_dir = $this->wau_get_legacy_upload_directory();
-			$this->wau_ensure_upload_directory_protection( true );
-
 			return array(
-				'path'    => $legacy_upload_dir['path'],
-				'url'     => $legacy_upload_dir['url'],
-				'storage' => 'legacy',
+				'path'    => '',
+				'url'     => '',
+				'storage' => 'none',
 			);
 		}
 
@@ -387,6 +440,18 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			}
 
 			return true;
+		}
+
+		/**
+		 * Check whether a filesystem path is absolute.
+		 *
+		 * @param string $path Filesystem path.
+		 * @return bool
+		 */
+		private function wau_is_absolute_path( $path ) {
+			$path = wp_normalize_path( (string) $path );
+
+			return 1 === preg_match( '#^(?:[a-zA-Z]:/|/)#', $path );
 		}
 
 		/**
@@ -422,15 +487,18 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				$document_root = sanitize_text_field( wp_unslash( $_SERVER['DOCUMENT_ROOT'] ) );
 			}
 
-			$public_root = $document_root ? realpath( $document_root ) : false;
-			$public_root = $public_root ? $public_root : realpath( ABSPATH );
+			if ( empty( $document_root ) ) {
+				return '';
+			}
+
+			$public_root = realpath( $document_root );
 
 			if ( ! $public_root ) {
 				return '';
 			}
 
-			$base_dir      = dirname( $public_root );
-			$web_root_names = array( 'public_html', 'htdocs', 'httpdocs', 'www', 'wwwroot', 'html', 'public' );
+			$base_dir       = dirname( $public_root );
+			$web_root_names = array( 'public_html', 'htdocs', 'httpdocs', 'wwwroot', 'public' );
 			$base_name     = strtolower( basename( wp_normalize_path( $base_dir ) ) );
 
 			if ( in_array( $base_name, $web_root_names, true ) ) {
@@ -510,6 +578,131 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		}
 
 		/**
+		 * Mark a new upload as pending until it is attached to an order.
+		 *
+		 * @param string $file_path Uploaded file path.
+		 * @return void
+		 */
+		private function wau_mark_upload_pending( $file_path ) {
+			global $wp_filesystem;
+
+			if ( $wp_filesystem && $this->wau_is_allowed_upload_path( $file_path ) ) {
+				$wp_filesystem->put_contents( $file_path . '.wau-pending', (string) time(), FS_CHMOD_FILE );
+			}
+		}
+
+		/**
+		 * Remove the pending marker once an upload belongs to an order.
+		 *
+		 * @param string $file_path Uploaded file path.
+		 * @return void
+		 */
+		private function wau_clear_upload_pending_marker( $file_path ) {
+			$marker_path = $file_path . '.wau-pending';
+
+			if ( file_exists( $marker_path ) && $this->wau_is_allowed_upload_path( $file_path ) ) {
+				wp_delete_file( $marker_path );
+			}
+		}
+
+		/**
+		 * Periodically remove abandoned uploads that were never attached to an order.
+		 *
+		 * @return void
+		 */
+		public function wau_maybe_cleanup_abandoned_uploads() {
+			if ( get_transient( 'wau_abandoned_upload_cleanup_lock' ) ) {
+				return;
+			}
+
+			$private_upload_dir = $this->wau_get_private_upload_directory();
+			if ( empty( $private_upload_dir['path'] ) || ! is_dir( $private_upload_dir['path'] ) ) {
+				return;
+			}
+
+			$cleanup_interval = absint( apply_filters( 'wau_abandoned_upload_cleanup_interval', 12 * HOUR_IN_SECONDS ) );
+			$cleanup_interval = $cleanup_interval > 0 ? $cleanup_interval : 12 * HOUR_IN_SECONDS;
+			set_transient( 'wau_abandoned_upload_cleanup_lock', 1, $cleanup_interval );
+
+			$retention = absint( apply_filters( 'wau_abandoned_upload_retention', 2 * DAY_IN_SECONDS ) );
+			$retention = $retention > 0 ? $retention : 2 * DAY_IN_SECONDS;
+			$cutoff    = time() - $retention;
+
+			try {
+				$directory = new DirectoryIterator( $private_upload_dir['path'] );
+			} catch ( Exception $exception ) {
+				return;
+			}
+
+			foreach ( $directory as $file_info ) {
+				$file_name = $file_info->getFilename();
+
+				if ( $file_info->isDot() || ! $file_info->isFile() || '.wau-pending' !== substr( $file_name, -12 ) ) {
+					continue;
+				}
+
+				$marker_path = $file_info->getPathname();
+				if ( $file_info->getMTime() > $cutoff ) {
+					continue;
+				}
+
+				$upload_path = substr( $marker_path, 0, -12 );
+				if ( file_exists( $upload_path ) && $this->wau_is_allowed_upload_path( $upload_path ) ) {
+					wp_delete_file( $upload_path );
+				}
+
+				wp_delete_file( $marker_path );
+			}
+		}
+
+		/**
+		 * Apply a modest per-client upload rate limit.
+		 *
+		 * @return bool
+		 */
+		private function wau_upload_rate_limit_allows_request() {
+			$window = absint( apply_filters( 'wau_upload_rate_limit_window', 10 * MINUTE_IN_SECONDS ) );
+			$window = $window > 0 ? $window : 10 * MINUTE_IN_SECONDS;
+			$limits = array();
+
+			if ( get_current_user_id() ) {
+				$limits[ 'user:' . get_current_user_id() ] = absint( apply_filters( 'wau_upload_rate_limit', 30 ) );
+			} elseif ( function_exists( 'WC' ) && WC()->session ) {
+				$session_id = WC()->session->get_customer_id();
+				if ( $session_id ) {
+					$limits[ 'session:' . $session_id ] = absint( apply_filters( 'wau_upload_rate_limit', 30 ) );
+				}
+			}
+
+			$remote_address = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+			if ( $remote_address ) {
+				$limits[ 'ip:' . $remote_address ] = absint( apply_filters( 'wau_upload_ip_rate_limit', 100 ) );
+			}
+
+			$rate_entries = array();
+			foreach ( $limits as $client_id => $limit ) {
+				if ( 0 === $limit ) {
+					continue;
+				}
+
+				$transient_key = 'wau_upload_rate_' . substr( hash_hmac( 'sha256', $client_id, wp_salt( 'nonce' ) ), 0, 32 );
+				$attempts      = absint( get_transient( $transient_key ) );
+
+				if ( $attempts >= $limit ) {
+					return false;
+				}
+
+				$rate_entries[ $transient_key ] = $attempts;
+			}
+
+			foreach ( $rate_entries as $transient_key => $attempts ) {
+				set_transient( $transient_key, $attempts + 1, $window );
+			}
+
+			return true;
+		}
+
+		/**
 		 * Displays the file upload section on WooCommerce product pages.
 		 *
 		 * This function checks if the file upload option is enabled in the plugin settings.
@@ -533,24 +726,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				),
 			);
 
-			// Get addon settings.
-			$addon_settings = get_option( 'wau_addon_settings' );
-
-			// Allow filtering of product IDs where the upload should be enabled.
-			// phpcs:ignore.
-			$product_ids = apply_filters( 'wau_include_product_ids', array() );
-
-			// Allow category-based conditions to be filtered.
-			// phpcs:ignore.
-			$category_passed = apply_filters( 'wau_category_checks', true, $product );
-
-			$enabled = false;
-			if ( ( is_array( $product_ids ) && empty( $product_ids ) ) || in_array( $product->get_id(), $product_ids, true ) ) {
-				$enabled = true;
-			}
-
-			// Check if the addon feature is enabled and if conditions are met.
-			if ( isset( $addon_settings['wau_enable_addon'] ) && '1' === $addon_settings['wau_enable_addon'] && $enabled && $category_passed ) {
+			if ( $product && $this->wau_upload_is_enabled_for_product( $product->get_id() ) ) {
 				$upload_label = __( 'Upload an image: ', 'woo-addon-uploads' );
 
 				// Generate file upload field.
@@ -569,6 +745,31 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		}
 
 		/**
+		 * Check the configured upload rules for a product on the server side.
+		 *
+		 * @param int $product_id Product ID.
+		 * @return bool
+		 */
+		private function wau_upload_is_enabled_for_product( $product_id ) {
+			$product = wc_get_product( $product_id );
+			if ( ! $product ) {
+				return false;
+			}
+
+			$addon_settings = get_option( 'wau_addon_settings' );
+			if ( empty( $addon_settings['wau_enable_addon'] ) || '1' !== (string) $addon_settings['wau_enable_addon'] ) {
+				return false;
+			}
+
+			$product_ids = apply_filters( 'wau_include_product_ids', array() );
+			if ( ! is_array( $product_ids ) || ( ! empty( $product_ids ) && ! in_array( $product->get_id(), array_map( 'absint', $product_ids ), true ) ) ) {
+				return false;
+			}
+
+			return (bool) apply_filters( 'wau_category_checks', true, $product );
+		}
+
+		/**
 		 * Adds uploaded file data to WooCommerce cart item metadata.
 		 *
 		 * This function securely handles file uploads, validates file types,
@@ -579,10 +780,13 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 * @since 1.7.2
 		 *
 		 * @param array $cart_item_meta The cart item metadata.
+		 * @param int   $product_id     Product ID.
+		 * @param int   $variation_id   Variation ID.
+		 * @param int   $quantity       Quantity.
 		 * @return array Updated cart item metadata with uploaded file details.
 		 */
-		public function wau_add_cart_item_data( $cart_item_meta ) {
-			global $wp_filesystem, $post;
+		public function wau_add_cart_item_data( $cart_item_meta, $product_id = 0, $variation_id = 0, $quantity = 1 ) {
+			global $wp_filesystem;
 
 			// Initialize WP Filesystem API.
 			if ( ! function_exists( 'WP_Filesystem' ) ) {
@@ -598,27 +802,81 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			// Check if file is uploaded.
 			$post_file = wp_unslash( $_FILES );
 			$postdata  = wp_unslash( $_POST );
-			if ( isset( $post_file['wau_file_addon'] ) && ! empty( $post_file['wau_file_addon']['name'] ) ) {
+			if ( isset( $post_file['wau_file_addon'] ) ) {
+				$file = $post_file['wau_file_addon'];
+
+				if (
+					! is_array( $file ) ||
+					! isset( $file['name'], $file['tmp_name'], $file['error'], $file['size'] ) ||
+					! is_scalar( $file['name'] ) ||
+					! is_scalar( $file['tmp_name'] ) ||
+					! is_scalar( $file['error'] ) ||
+					! is_scalar( $file['size'] )
+				) {
+					wc_add_notice( __( 'Invalid file upload request.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				if ( '' === (string) $file['name'] ) {
+					return $cart_item_meta;
+				}
 
 				if (
 					! isset( $postdata['wau_file_upload_nonce'] ) ||
+					! is_scalar( $postdata['wau_file_upload_nonce'] ) ||
 					! wp_verify_nonce( sanitize_text_field( wp_unslash( $postdata['wau_file_upload_nonce'] ) ), 'wau_file_upload' )
 				) {
 					wc_add_notice( __( 'Security check failed. Please try again.', 'woo-addon-uploads' ), 'error' );
 					return $cart_item_meta;
 				}
 
-				$file = $post_file['wau_file_addon'];
+				if ( ! $this->wau_upload_is_enabled_for_product( $product_id ) ) {
+					wc_add_notice( __( 'File uploads are not enabled for this product.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				if ( UPLOAD_ERR_OK !== (int) $file['error'] ) {
+					wc_add_notice( __( 'File upload failed. Please try again.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				$tmp_name = (string) $file['tmp_name'];
+				if ( empty( $tmp_name ) || ! is_uploaded_file( $tmp_name ) ) {
+					wc_add_notice( __( 'Invalid file upload request.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				$wordpress_max = wp_max_upload_size();
+				$default_max   = $wordpress_max > 0 ? min( $wordpress_max, 10 * MB_IN_BYTES ) : 10 * MB_IN_BYTES;
+				$maximum_size  = absint( apply_filters( 'wau_max_upload_size', $default_max, $product_id ) );
+				$actual_size   = filesize( $tmp_name );
+
+				if ( ! $actual_size || ( $maximum_size > 0 && $actual_size > $maximum_size ) ) {
+					wc_add_notice(
+						sprintf(
+							/* translators: %s: Maximum upload size. */
+							__( 'The uploaded file must be smaller than %s.', 'woo-addon-uploads' ),
+							size_format( $maximum_size )
+						),
+						'error'
+					);
+					return $cart_item_meta;
+				}
+
+				if ( ! $this->wau_upload_rate_limit_allows_request() ) {
+					wc_add_notice( __( 'Too many upload attempts. Please wait a few minutes and try again.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
 
 				// Apply filter to allow custom file types.
-				// phpcs:ignore.
 				$allowed_types = apply_filters( 'wau_allowed_file_types', array( 'jpg', 'jpeg', 'png', 'gif', 'webp' ) );
+				$allowed_types = is_array( $allowed_types ) ? array_map( 'sanitize_key', $allowed_types ) : array();
 
 				// Validate file type.
 				$file_info = wp_check_filetype_and_ext( $file['tmp_name'], $file['name'] );
-				$file_ext  = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+				$file_ext  = ! empty( $file_info['ext'] ) ? strtolower( $file_info['ext'] ) : '';
 
-				if ( ! in_array( $file_ext, $allowed_types, true ) || ! $file_info['ext'] ) {
+				if ( empty( $file_ext ) || ! in_array( $file_ext, $allowed_types, true ) ) {
 					wc_add_notice( __( 'Invalid file type. Only JPG, PNG, GIF, and WebP files are allowed.', 'woo-addon-uploads' ), 'error' );
 					return $cart_item_meta;
 				}
@@ -629,8 +887,15 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				$custom_url  = $storage_dir['url'];
 
 				// Ensure directory exists.
-				if ( ! $this->wau_prepare_upload_directory( $custom_dir ) ) {
-					wc_add_notice( __( 'Failed to create upload directory.', 'woo-addon-uploads' ), 'error' );
+				if ( empty( $custom_dir ) || ! $this->wau_prepare_upload_directory( $custom_dir ) ) {
+					wc_add_notice( __( 'File upload is temporarily unavailable because private upload storage could not be created. Please contact the store administrator.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				$minimum_free_space = absint( apply_filters( 'wau_minimum_free_disk_space', 100 * MB_IN_BYTES ) );
+				$free_space         = function_exists( 'disk_free_space' ) ? @disk_free_space( $custom_dir ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( false !== $free_space && $free_space - $actual_size < $minimum_free_space ) {
+					wc_add_notice( __( 'File upload is temporarily unavailable because the server is low on storage space.', 'woo-addon-uploads' ), 'error' );
 					return $cart_item_meta;
 				}
 
@@ -657,23 +922,34 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					return $cart_item_meta;
 				}
 
-				// Generate unique sanitized file name.
-				$file_name          = sanitize_file_name( $file['name'] );
+				// Generate unique sanitized file name using WordPress's validated filename.
+				$file_name          = sanitize_file_name( basename( $uploaded_file['file'] ) );
 				$file_name          = time() . '-' . $file_name;
-				$crypto_strong_hash = bin2hex( random_bytes( 16 ) );
+
+				try {
+					$crypto_strong_hash = bin2hex( random_bytes( 16 ) );
+				} catch ( Throwable $exception ) {
+					wp_delete_file( $uploaded_file['file'] );
+					wc_add_notice( __( 'File upload failed. Please try again.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
 				$file_name          = $crypto_strong_hash . '-' . $file_name;
-				$new_file_path      = $custom_dir . $file_name;
+				$access_key         = wp_generate_password( 32, false, false );
+				$new_file_path      = trailingslashit( $custom_dir ) . $file_name;
 				$new_file_url       = $custom_url ? $custom_url . $file_name : '';
 
 				// Move file using WP_Filesystem.
 				if ( $wp_filesystem->move( $uploaded_file['file'], $new_file_path, true ) ) {
 					// Store file information.
 					$addon_id                          = array(
-						'file_path' => $new_file_path, // Absolute file path.
-						'file_url'  => esc_url_raw( $new_file_url ), // Legacy public URL when private storage is unavailable.
-						'file_name' => esc_html( $file_name ), // File Name.
-						'storage'   => sanitize_key( $storage_dir['storage'] ),
+						'file_path'  => $new_file_path, // Absolute file path.
+						'file_url'   => esc_url_raw( $new_file_url ),
+						'file_name'  => $file_name,
+						'storage'    => sanitize_key( $storage_dir['storage'] ),
+						'access_key' => $access_key,
 					);
+					$this->wau_mark_upload_pending( $new_file_path );
 					$cart_item_meta['wau_addon_ids'][] = $addon_id;
 				} else {
 					wp_delete_file( $uploaded_file['file'] );
@@ -699,7 +975,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 */
 		public function wau_get_cart_item_from_session( $cart_item, $values ) {
 			// Check if the cart item has uploaded file metadata and restore it.
-			if ( isset( $values['wau_addon_ids'] ) ) {
+			if ( isset( $values['wau_addon_ids'] ) && is_array( $values['wau_addon_ids'] ) ) {
 				$cart_item['wau_addon_ids'] = $values['wau_addon_ids'];
 			}
 
@@ -760,13 +1036,18 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 * @return array Modified array of cart item data, including uploaded file details.
 		 */
 		public function wau_get_item_data( $other_data, $cart_item ) {
-			if ( isset( $cart_item['wau_addon_ids'] ) ) {
+			if ( isset( $cart_item['wau_addon_ids'] ) && is_array( $cart_item['wau_addon_ids'] ) ) {
 				foreach ( $cart_item['wau_addon_ids'] as $addon_id ) {
+					if ( ! is_array( $addon_id ) || empty( $addon_id['file_name'] ) || ! is_scalar( $addon_id['file_name'] ) ) {
+						continue;
+					}
+
 					$block_present = $this->is_woocommerce_block_present();
 					$image_url     = add_query_arg(
 						array(
 							'action' => 'wau_secure_download',
 							'file'   => esc_html( $addon_id['file_name'] ),
+							'key'    => isset( $addon_id['access_key'] ) && is_scalar( $addon_id['access_key'] ) ? sanitize_text_field( $addon_id['access_key'] ) : '',
 							'nonce'  => wp_create_nonce( 'wau_secure_download' ),
 						),
 						admin_url( 'admin-post.php' )
@@ -804,23 +1085,38 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 */
 		public function wau_add_item_meta_url( $item, $cart_item_key, $values ) {
 			// Check if there are uploaded files.
-			if ( empty( $values['wau_addon_ids'] ) ) {
+			if ( empty( $values['wau_addon_ids'] ) || ! is_array( $values['wau_addon_ids'] ) ) {
 				return;
 			}
 
 			// Loop through uploaded files and add them as metadata.
 			foreach ( $values['wau_addon_ids'] as $addon_id ) {
-				if ( isset( $addon_id['file_name'] ) ) {
+				if ( is_array( $addon_id ) && isset( $addon_id['file_name'] ) && is_scalar( $addon_id['file_name'] ) ) {
+					$file_name  = sanitize_file_name( $addon_id['file_name'] );
+					$access_key = isset( $addon_id['access_key'] ) && is_scalar( $addon_id['access_key'] ) ? sanitize_text_field( $addon_id['access_key'] ) : '';
 					$download_url = add_query_arg(
 						array(
 							'action'   => 'wau_secure_download',
-							'file'     => esc_html( $addon_id['file_name'] ),
+							'file'     => $file_name,
+							'key'      => $access_key,
 							'nonce'    => wp_create_nonce( 'wau_secure_download' ),
 							'download' => '1',
 						),
 						admin_url( 'admin-post.php' )
 					);
-					$item->add_meta_data( __( 'Uploaded Media', 'woo-addon-uploads' ), '<a href="' . esc_url( $download_url ) . '" download>' . esc_html( $addon_id['file_name'] ) . '</a>', true );
+					$item->add_meta_data(
+						'_wau_upload_reference',
+						array(
+							'file_name'  => $file_name,
+							'access_key' => $access_key,
+						),
+						false
+					);
+					$item->add_meta_data( __( 'Uploaded Media', 'woo-addon-uploads' ), '<a href="' . esc_url( $download_url ) . '" download>' . esc_html( $file_name ) . '</a>', true );
+
+					if ( ! empty( $addon_id['file_path'] ) ) {
+						$this->wau_clear_upload_pending_marker( $addon_id['file_path'] );
+					}
 				}
 			}
 		}
@@ -836,13 +1132,42 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		 * @return string
 		 */
 		public function wau_filter_order_item_uploaded_media_meta_value( $display_value, $meta, $item ) {
-			if ( false === strpos( (string) $display_value, 'wau-uploads/' ) ) {
+			if ( ! is_scalar( $display_value ) ) {
 				return $display_value;
 			}
 
+			if ( false === strpos( (string) $display_value, 'wau-uploads/' ) && false === strpos( (string) $display_value, 'wau_secure_download' ) ) {
+				return $display_value;
+			}
+
+			$order_id  = is_object( $item ) && method_exists( $item, 'get_order_id' ) ? absint( $item->get_order_id() ) : 0;
+			$order     = $order_id && function_exists( 'wc_get_order' ) ? wc_get_order( $order_id ) : false;
+			$order_key = $order && 0 === (int) $order->get_customer_id() ? $order->get_order_key() : '';
+			$value    = preg_replace_callback(
+				'#https?://[^\'"\s<>]+admin-post\.php\?[^\'"\s<>]*action=wau_secure_download[^\'"\s<>]*#i',
+				function ( $matches ) use ( $order_id, $order_key ) {
+					if ( ! $order_id ) {
+						return $matches[0];
+					}
+
+					$download_url = html_entity_decode( $matches[0], ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) );
+
+					return esc_url(
+						add_query_arg(
+							array(
+								'order_id'  => $order_id,
+								'order_key' => $order_key,
+							),
+							$download_url
+						)
+					);
+				},
+				$display_value
+			);
+
 			return preg_replace_callback(
 				'#https?://[^\'"\s<>]+/wau-uploads/([^\'"\s<>?]+)(?:\?[^\'"\s<>]*)?#i',
-				function ( $matches ) {
+				function ( $matches ) use ( $order_id, $order_key ) {
 					$file_name = sanitize_file_name( basename( rawurldecode( $matches[1] ) ) );
 
 					if ( empty( $file_name ) ) {
@@ -856,12 +1181,14 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 								'file'     => $file_name,
 								'nonce'    => wp_create_nonce( 'wau_secure_download' ),
 								'download' => '1',
+								'order_id' => $order_id,
+								'order_key' => $order_key,
 							),
 							admin_url( 'admin-post.php' )
 						)
 					);
 				},
-				$display_value
+				$value
 			);
 		}
 
@@ -881,12 +1208,14 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			// Get the removed cart item details.
 			$removed_item = $cart->removed_cart_contents[ $cart_item_key ] ?? null;
 
-			// Check if the removed item has an uploaded file.
-			if ( isset( $removed_item['wau_addon_ids'][0]['file_path'] ) && ! empty( $removed_item['wau_addon_ids'][0]['file_path'] ) ) {
-				$file_name = $removed_item['wau_addon_ids'][0]['file_path'];
+			if ( ! is_array( $removed_item ) || empty( $removed_item['wau_addon_ids'] ) || ! is_array( $removed_item['wau_addon_ids'] ) ) {
+				return;
+			}
 
-				// Call function to delete the uploaded file.
-				$this->wau_delete_uploaded_file( $file_name );
+			foreach ( $removed_item['wau_addon_ids'] as $addon_id ) {
+				if ( is_array( $addon_id ) && ! empty( $addon_id['file_path'] ) && is_scalar( $addon_id['file_path'] ) ) {
+					$this->wau_delete_uploaded_file( (string) $addon_id['file_path'] );
+				}
 			}
 		}
 
@@ -917,6 +1246,200 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			if ( ! wp_delete_file( $file_path ) ) {
 				return new WP_Error( 'delete_failed', __( 'Failed to delete the file.', 'woo-addon-uploads' ) );
 			}
+
+			$this->wau_clear_upload_pending_marker( $file_path );
+		}
+
+		/**
+		 * Check whether the current request can download a specific uploaded file.
+		 *
+		 * @since 1.7.5
+		 *
+		 * @param string $file_name Uploaded file name.
+		 * @param array  $getdata   Request query data.
+		 * @return bool
+		 */
+		private function wau_current_request_can_download_file( $file_name, $getdata ) {
+			if ( is_user_logged_in() && current_user_can( 'manage_woocommerce' ) ) {
+				return true;
+			}
+
+			$access_key      = isset( $getdata['key'] ) && is_scalar( $getdata['key'] ) ? sanitize_text_field( wp_unslash( $getdata['key'] ) ) : '';
+			$has_valid_nonce = (
+				isset( $getdata['nonce'] ) &&
+				is_scalar( $getdata['nonce'] ) &&
+				wp_verify_nonce( sanitize_text_field( wp_unslash( $getdata['nonce'] ) ), 'wau_secure_download' )
+			);
+
+			if ( $this->wau_cart_has_uploaded_file( $file_name, $access_key, $has_valid_nonce ) ) {
+				return true;
+			}
+
+			$order_id  = isset( $getdata['order_id'] ) && is_scalar( $getdata['order_id'] ) ? absint( $getdata['order_id'] ) : 0;
+			$order_key = isset( $getdata['order_key'] ) && is_scalar( $getdata['order_key'] ) ? sanitize_text_field( wp_unslash( $getdata['order_key'] ) ) : '';
+			if ( $order_id && $this->wau_order_request_has_uploaded_file( $order_id, $file_name, $access_key, $order_key ) ) {
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		 * Check whether the current WooCommerce cart session owns the uploaded file.
+		 *
+		 * @since 1.7.5
+		 *
+		 * @param string $file_name       Uploaded file name.
+		 * @param string $access_key      Per-file access key.
+		 * @param bool   $has_valid_nonce Whether the legacy nonce is valid.
+		 * @return bool
+		 */
+		private function wau_cart_has_uploaded_file( $file_name, $access_key, $has_valid_nonce ) {
+			if ( ! function_exists( 'WC' ) ) {
+				return false;
+			}
+
+			if ( ! WC()->cart && function_exists( 'wc_load_cart' ) ) {
+				wc_load_cart();
+			}
+
+			if ( ! WC()->cart ) {
+				return false;
+			}
+
+			foreach ( WC()->cart->get_cart() as $cart_item ) {
+				if ( empty( $cart_item['wau_addon_ids'] ) || ! is_array( $cart_item['wau_addon_ids'] ) ) {
+					continue;
+				}
+
+				foreach ( $cart_item['wau_addon_ids'] as $addon_id ) {
+					if ( ! is_array( $addon_id ) || empty( $addon_id['file_name'] ) || ! is_scalar( $addon_id['file_name'] ) || ! hash_equals( (string) $addon_id['file_name'], $file_name ) ) {
+						continue;
+					}
+
+					if ( isset( $addon_id['access_key'] ) && ! is_scalar( $addon_id['access_key'] ) ) {
+						return false;
+					}
+
+					if ( ! empty( $addon_id['access_key'] ) && is_scalar( $addon_id['access_key'] ) ) {
+						return ! empty( $access_key ) && hash_equals( (string) $addon_id['access_key'], $access_key );
+					}
+
+					return $has_valid_nonce;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Check whether an authorized customer order contains the exact uploaded file.
+		 *
+		 * @since 1.7.5
+		 *
+		 * @param int    $order_id   Order ID.
+		 * @param string $file_name  Uploaded file name.
+		 * @param string $access_key Per-file access key.
+		 * @param string $order_key  WooCommerce order key for guest orders.
+		 * @return bool
+		 */
+		private function wau_order_request_has_uploaded_file( $order_id, $file_name, $access_key, $order_key ) {
+			if ( ! function_exists( 'wc_get_order' ) ) {
+				return false;
+			}
+
+			$order = wc_get_order( $order_id );
+			if ( ! $order ) {
+				return false;
+			}
+
+			$customer_id       = (int) $order->get_customer_id();
+			$logged_in_owner   = is_user_logged_in() && $customer_id > 0 && $customer_id === get_current_user_id();
+			$valid_guest_order = 0 === $customer_id && ! empty( $order_key ) && hash_equals( (string) $order->get_order_key(), $order_key );
+
+			if ( ! $logged_in_owner && ! $valid_guest_order ) {
+				return false;
+			}
+
+			$allowed_meta_keys = apply_filters(
+				'wau_uploaded_media_meta_keys',
+				array_unique( array( '_wau_upload_reference', 'Uploaded Media', __( 'Uploaded Media', 'woo-addon-uploads' ) ) )
+			);
+
+			foreach ( $order->get_items() as $item ) {
+				foreach ( $item->get_meta_data() as $meta ) {
+					if ( ! in_array( (string) $meta->key, $allowed_meta_keys, true ) ) {
+						continue;
+					}
+
+					$reference = $this->wau_get_upload_reference_from_meta( $meta->value );
+
+					if ( empty( $reference['file_name'] ) || ! hash_equals( (string) $reference['file_name'], $file_name ) ) {
+						continue;
+					}
+
+					if ( ! empty( $reference['access_key'] ) ) {
+						return ! empty( $access_key ) && hash_equals( (string) $reference['access_key'], $access_key );
+					}
+
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Parse one exact upload reference from structured or legacy order metadata.
+		 *
+		 * @param mixed $value Order-item metadata value.
+		 * @return array
+		 */
+		private function wau_get_upload_reference_from_meta( $value ) {
+			if ( is_array( $value ) ) {
+				return array(
+					'file_name'  => isset( $value['file_name'] ) && is_scalar( $value['file_name'] ) ? sanitize_file_name( basename( (string) $value['file_name'] ) ) : '',
+					'access_key' => isset( $value['access_key'] ) && is_scalar( $value['access_key'] ) ? sanitize_text_field( (string) $value['access_key'] ) : '',
+				);
+			}
+
+			if ( ! is_scalar( $value ) ) {
+				return array();
+			}
+
+			$stored_value = html_entity_decode( (string) $value, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) );
+			$url          = $stored_value;
+
+			if ( preg_match( '/href\s*=\s*(["\'])(.*?)\1/i', $stored_value, $matches ) ) {
+				$url = $matches[2];
+			}
+
+			$url_parts = wp_parse_url( $url );
+			if ( ! is_array( $url_parts ) ) {
+				return array();
+			}
+
+			$query = array();
+			if ( ! empty( $url_parts['query'] ) ) {
+				wp_parse_str( $url_parts['query'], $query );
+			}
+
+			if ( isset( $query['action'], $query['file'] ) && 'wau_secure_download' === $query['action'] && is_scalar( $query['file'] ) ) {
+				return array(
+					'file_name'  => sanitize_file_name( basename( rawurldecode( (string) $query['file'] ) ) ),
+					'access_key' => isset( $query['key'] ) && is_scalar( $query['key'] ) ? sanitize_text_field( (string) $query['key'] ) : '',
+				);
+			}
+
+			$path = isset( $url_parts['path'] ) ? rawurldecode( $url_parts['path'] ) : '';
+			if ( preg_match( '#/wau-uploads/([^/]+)$#i', $path, $matches ) ) {
+				return array(
+					'file_name'  => sanitize_file_name( basename( $matches[1] ) ),
+					'access_key' => '',
+				);
+			}
+
+			return array();
 		}
 
 		/**
@@ -1016,30 +1539,24 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		/**
 		 * Handles secure file downloads for uploaded media.
 		 *
-		 * This function verifies the nonce, ensures the requested file exists,
-		 * and then serves it as a downloadable file. It prevents direct access
-		 * to the uploaded files and only allows secure downloads via a generated link.
+		 * This function verifies that the current cart session, order owner, or a
+		 * WooCommerce manager/admin is requesting the file, ensures the requested
+		 * file exists, and then serves it as a downloadable file.
 		 *
 		 * @since 1.7.2
 		 */
 		public function wau_secure_file_download() {
 			$getdata = wp_unslash( $_GET );
 
-			$has_valid_nonce = (
-				isset( $getdata['nonce'] ) &&
-				wp_verify_nonce( $getdata['nonce'], 'wau_secure_download' )
-			);
-
-			$is_admin_allowed = (
-				is_user_logged_in() &&
-				current_user_can( 'manage_woocommerce' )
-			);
-
-			// Allow if nonce is valid OR admin user.
-			if ( isset( $getdata['file'] ) && ( $has_valid_nonce || $is_admin_allowed ) ) {
+			if ( isset( $getdata['file'] ) && is_scalar( $getdata['file'] ) ) {
 
 				// 1. Force strict basename isolation to prevent directory traversal updates (e.g., ../../../wp-config.php)
-				$safe_filename = basename( $getdata['file'] );
+				$safe_filename = sanitize_file_name( basename( $getdata['file'] ) );
+
+				if ( empty( $safe_filename ) || ! $this->wau_current_request_can_download_file( $safe_filename, $getdata ) ) {
+					wp_die( esc_html__( 'Unauthorized access.', 'woo-addon-uploads' ) );
+				}
+
 				$file_path     = $this->wau_locate_uploaded_file( $safe_filename );
 
 				// 2. Clear any active output buffers to prevent file corruption/whitespace injections
@@ -1051,10 +1568,12 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					$filetype  = wp_check_filetype( $file_path );
 					$mime_type = $filetype['type'] ? $filetype['type'] : 'application/octet-stream';
 
-					// Serve images inline so they render inside <img> tags, and force download as attachment for other file types or when explicit download requested.
-					$is_image    = ( strpos( $mime_type, 'image/' ) === 0 );
+					// Only known passive raster formats may render inline. Other formats are downloads.
+					$inline_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+					$is_image    = in_array( $mime_type, $inline_mimes, true );
 					$disposition = ( $is_image && ! isset( $getdata['download'] ) ) ? 'inline' : 'attachment';
 
+					send_nosniff_header();
 					header( 'Content-Type: ' . $mime_type );
 					header( 'Content-Disposition: ' . $disposition . '; filename="' . basename( $file_path ) . '"' );
 					header( 'Content-Length: ' . filesize( $file_path ) );

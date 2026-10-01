@@ -1,25 +1,25 @@
-# Copyright (C) 2020 Dhruvin Shah
-# This file is distributed under the same license as the WooCommerce Addon Uploads plugin.
+# Copyright (C) 2026 Imaginate Solutions
+# This file is distributed under the same license as the File Uploads Addon for WooCommerce plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: WooCommerce Addon Uploads 1.2.0\n"
+"Project-Id-Version: File Uploads Addon for WooCommerce 1.7.6\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-addon-uploads\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2020-06-12T19:39:16+02:00\n"
+"POT-Creation-Date: 2026-09-26T12:18:21+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.4.0\n"
 "X-Domain: woo-addon-uploads\n"
 
 #. Plugin Name of the plugin
-msgid "WooCommerce Addon Uploads"
+msgid "File Uploads Addon for WooCommerce"
 msgstr ""
 
 #. Plugin URI of the plugin
-msgid "https://imaginate-solutions.com/"
+msgid "https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/"
 msgstr ""
 
 #. Description of the plugin
@@ -27,43 +27,348 @@ msgid "WooCommerce addon to upload additional files before adding product to car
 msgstr ""
 
 #. Author of the plugin
-msgid "Dhruvin Shah"
+msgid "Imaginate Solutions"
 msgstr ""
 
 #. Author URI of the plugin
 msgid "https://imaginate-solutions.com"
 msgstr ""
 
-#: includes/class-wau-admin-settings.php:36
+#: includes/class-wau-admin-settings.php:86
 msgid "Enable Addon Uploads"
 msgstr ""
 
-#: includes/class-wau-admin-settings.php:49
+#: includes/class-wau-admin-settings.php:94
+msgid "Product Categories"
+msgstr ""
+
+#: includes/class-wau-admin-settings.php:143
 msgid "Configure your Settings"
 msgstr ""
 
-#: includes/class-wau-admin-settings.php:70
+#: includes/class-wau-admin-settings.php:165
 msgid "Enable Addon Uploads on Product Page"
 msgstr ""
 
-#: includes/class-wau-admin.php:49
-#: includes/class-wau-admin.php:50
+#: includes/class-wau-admin-settings.php:194
+msgid "All"
+msgstr ""
+
+#: includes/class-wau-admin-settings.php:207
+msgid "Select the Product Catgories for which you want to allow file upload"
+msgstr ""
+
+#: includes/class-wau-admin.php:64
 #: includes/class-wau-admin.php:65
+#: includes/class-wau-admin.php:95
 msgid "Addon Upload Settings"
 msgstr ""
 
+#: includes/class-wau-admin.php:72
 #: includes/class-wau-admin.php:73
+#: includes/class-wau-admin.php:96
+#: includes/class-wau-admin.php:180
+msgid "System Status"
+msgstr ""
+
+#: includes/class-wau-admin.php:80
+#: includes/class-wau-admin.php:81
+#: includes/class-wau-admin.php:97
+#: woocommerce-addon-uploads.php:161
+msgid "Upgrade to Pro"
+msgstr ""
+
+#: includes/class-wau-admin.php:129
+msgid "Legacy Upload Protection Requires Attention"
+msgstr ""
+
+#: includes/class-wau-admin.php:132
+msgid "Legacy customer files are still present in the public uploads folder. Confirm that direct requests to the path below return 403 or 404 until migration is complete."
+msgstr ""
+
+#: includes/class-wau-admin.php:135
+msgid "Private upload storage is unavailable, so new customer uploads are paused."
+msgstr ""
+
+#: includes/class-wau-admin.php:150
+msgid "Add this rule to the applicable Nginx server block and reload Nginx. Secure downloads continue through WordPress."
+msgstr ""
+
+#: includes/class-wau-admin.php:152
+msgid "Share this path with your host and ask them to block direct web access, or verify that the existing protection returns 403 or 404."
+msgstr ""
+
+#: includes/class-wau-admin.php:162
+#: woocommerce-addon-uploads.php:163
 msgid "Settings"
 msgstr ""
 
-#: includes/class-wau-front-end.php:57
+#: includes/class-wau-admin.php:182
+msgid "Use this page to confirm where uploaded files are stored, whether legacy public uploads are protected, and what actions may be needed on this hosting environment."
+msgstr ""
+
+#: includes/class-wau-admin.php:185
+msgid "Upload Storage"
+msgstr ""
+
+#: includes/class-wau-admin.php:188
+msgid "Private upload storage"
+msgstr ""
+
+#: includes/class-wau-admin.php:189
+msgid "Private upload path"
+msgstr ""
+
+#: includes/class-wau-admin.php:189
+msgid "Not available"
+msgstr ""
+
+#: includes/class-wau-admin.php:190
+msgid "Manual override"
+msgstr ""
+
+#: includes/class-wau-admin.php:191
+msgid "Legacy upload path"
+msgstr ""
+
+#: includes/class-wau-admin.php:192
+msgid "Legacy upload URL path"
+msgstr ""
+
+#: includes/class-wau-admin.php:193
+msgid "Legacy folder exists"
+msgstr ""
+
+#: includes/class-wau-admin.php:193
+msgid "Yes"
+msgstr ""
+
+#: includes/class-wau-admin.php:193
+msgid "No"
+msgstr ""
+
+#: includes/class-wau-admin.php:194
+msgid "Legacy file count"
+msgstr ""
+
+#: includes/class-wau-admin.php:198
+msgid "Access Protection"
+msgstr ""
+
+#: includes/class-wau-admin.php:201
+msgid ".htaccess protection"
+msgstr ""
+
+#: includes/class-wau-admin.php:202
+msgid "web.config protection"
+msgstr ""
+
+#: includes/class-wau-admin.php:203
+msgid "Server software"
+msgstr ""
+
+#: includes/class-wau-admin.php:203
+msgid "Unknown"
+msgstr ""
+
+#: includes/class-wau-admin.php:204
+msgid "Server-level protection needed"
+msgstr ""
+
+#: includes/class-wau-admin.php:204
+msgid "Yes, while legacy public files remain on this server."
+msgstr ""
+
+#: includes/class-wau-admin.php:204
+msgid "No server rule currently detected as necessary."
+msgstr ""
+
+#: includes/class-wau-admin.php:205
+msgid "Direct-access verification"
+msgstr ""
+
+#: includes/class-wau-admin.php:205
+msgid "Required: confirm a legacy file URL returns 403 or 404."
+msgstr ""
+
+#: includes/class-wau-admin.php:205
+msgid "No additional verification currently detected."
+msgstr ""
+
+#: includes/class-wau-admin.php:209
+msgid "Migration"
+msgstr ""
+
+#: includes/class-wau-admin.php:212
+msgid "Legacy migration"
+msgstr ""
+
+#: includes/class-wau-admin.php:213
+msgid "Migration batch size"
+msgstr ""
+
+#: includes/class-wau-admin.php:217
+msgid "Action Items"
+msgstr ""
+
+#: includes/class-wau-admin.php:226
+msgid "No immediate action is required. New uploads are using private storage and legacy files are either migrated or not present."
+msgstr ""
+
+#: includes/class-wau-admin.php:231
+msgid "Server Rule"
+msgstr ""
+
+#: includes/class-wau-admin.php:232
+msgid "Share the following path with your host and ask them to block direct public access to it. Secure download links will continue to work through WordPress."
+msgstr ""
+
+#: includes/class-wau-admin.php:276
+msgid "Available and writable"
+msgstr ""
+
+#: includes/class-wau-admin.php:276
+msgid "Not available or not writable"
+msgstr ""
+
+#: includes/class-wau-admin.php:278
+msgid "Unavailable"
+msgstr ""
+
+#. translators: %s: PHP constant example.
+#: includes/class-wau-admin.php:331
+msgid "New customer uploads are paused because private storage is unavailable. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path."
+msgstr ""
+
+#. translators: %s: Upload URL path.
+#: includes/class-wau-admin.php:339
+msgid "Ask your host to block direct public access to %s. Secure download links will continue to work through WordPress."
+msgstr ""
+
+#. translators: %s: Upload URL path.
+#: includes/class-wau-admin.php:347
+msgid "Apache and LiteSpeed can be configured to ignore .htaccess files. While legacy files remain, request a known legacy file URL under %s and confirm the server returns 403 or 404. If it does not, ask your host to deny this directory in the virtual-host configuration."
+msgstr ""
+
+#: includes/class-wau-admin.php:353
+msgid "The legacy .htaccess file is missing or outdated. The plugin will try to update it automatically; if it remains outdated, check file permissions on the legacy upload folder."
+msgstr ""
+
+#: includes/class-wau-admin.php:357
+msgid "The legacy web.config file is missing or outdated. The plugin will try to update it automatically; if it remains outdated, check file permissions on the legacy upload folder."
+msgstr ""
+
+#: includes/class-wau-admin.php:361
+msgid "Legacy files are still being migrated to private storage in small batches. Keep the plugin active and allow normal site traffic or admin page visits to continue the migration."
+msgstr ""
+
+#: includes/class-wau-admin.php:409
+msgid "Not needed because the legacy folder does not exist"
+msgstr ""
+
+#: includes/class-wau-admin.php:416
+msgid "Missing"
+msgstr ""
+
+#: includes/class-wau-admin.php:423
+msgid "Present but not readable"
+msgstr ""
+
+#: includes/class-wau-admin.php:432
+msgid "Present and current"
+msgstr ""
+
+#: includes/class-wau-admin.php:438
+msgid "Present but outdated"
+msgstr ""
+
+#: includes/class-wau-admin.php:451
+msgid "Waiting for private storage"
+msgstr ""
+
+#: includes/class-wau-admin.php:455
+msgid "Complete or no legacy files found"
+msgstr ""
+
+#: includes/class-wau-admin.php:458
+msgid "In progress"
+msgstr ""
+
+#: includes/class-wau-front-end.php:730
 msgid "Upload an image: "
 msgstr ""
 
-#: includes/class-wau-front-end.php:95
+#: includes/class-wau-front-end.php:798
+#: includes/class-wau-front-end.php:839
+#: includes/class-wau-front-end.php:933
+msgid "File upload failed. Please try again."
+msgstr ""
+
+#: includes/class-wau-front-end.php:816
+#: includes/class-wau-front-end.php:845
+msgid "Invalid file upload request."
+msgstr ""
+
+#: includes/class-wau-front-end.php:829
+msgid "Security check failed. Please try again."
+msgstr ""
+
+#: includes/class-wau-front-end.php:834
+msgid "File uploads are not enabled for this product."
+msgstr ""
+
+#. translators: %s: Maximum upload size.
+#: includes/class-wau-front-end.php:858
+msgid "The uploaded file must be smaller than %s."
+msgstr ""
+
+#: includes/class-wau-front-end.php:867
+msgid "Too many upload attempts. Please wait a few minutes and try again."
+msgstr ""
+
+#: includes/class-wau-front-end.php:880
+msgid "Invalid file type. Only JPG, PNG, GIF, and WebP files are allowed."
+msgstr ""
+
+#: includes/class-wau-front-end.php:891
+msgid "File upload is temporarily unavailable because private upload storage could not be created. Please contact the store administrator."
+msgstr ""
+
+#: includes/class-wau-front-end.php:898
+msgid "File upload is temporarily unavailable because the server is low on storage space."
+msgstr ""
+
+#: includes/class-wau-front-end.php:921
+msgid "File upload failed: "
+msgstr ""
+
+#: includes/class-wau-front-end.php:956
+msgid "Failed to move file to custom folder."
+msgstr ""
+
+#: includes/class-wau-front-end.php:1056
+#: includes/class-wau-front-end.php:1059
 msgid "Uploaded File"
 msgstr ""
 
-#: includes/class-wau-front-end.php:116
+#: includes/class-wau-front-end.php:1115
+#: includes/class-wau-front-end.php:1366
 msgid "Uploaded Media"
+msgstr ""
+
+#: includes/class-wau-front-end.php:1242
+msgid "Invalid file or file does not exist."
+msgstr ""
+
+#: includes/class-wau-front-end.php:1247
+msgid "Failed to delete the file."
+msgstr ""
+
+#: includes/class-wau-front-end.php:1557
+#: includes/class-wau-front-end.php:1587
+msgid "Unauthorized access."
+msgstr ""
+
+#: includes/class-wau-front-end.php:1583
+msgid "File does not exist."
 msgstr ""

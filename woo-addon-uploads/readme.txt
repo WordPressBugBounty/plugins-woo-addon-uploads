@@ -4,7 +4,7 @@ Donate link: https://www.paypal.me/DhruvinS
 Tags: woocommerce file upload, file upload, product addons, woocommerce addon, print on demand
 Requires at least: 5.0
 Tested up to: 7.1
-Stable tag: 1.7.5
+Stable tag: 1.7.6
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
@@ -142,6 +142,14 @@ The manual installation method involves downloading our eCommerce plugin and upl
 
 == Changelog ==
 
+= 1.7.6 (26.09.2026) =
+* Security fix: Prevent new uploads from falling back to the public uploads directory when private storage is unavailable.
+* Security fix: Require exact file and access-key matches when authorizing downloads for cart sessions, order owners, guest customers, and WooCommerce managers/admins.
+* Security fix: Harden private-path validation and stop automatic path selection when the document root cannot be determined safely.
+* Security fix: Enforce product upload rules, request shape validation, upload size limits, rate limiting, free-space protection, and abandoned-upload cleanup on the server.
+* Security fix: Warn while legacy public files remain, use a precedence-safe Nginx deny rule, and require direct-access verification on Apache/LiteSpeed.
+* Reliability fix: Compare migrated files by SHA-256 content hash before deleting duplicate legacy files.
+
 = 1.7.5 (24.08.2026) =
 * Security fix: Store new customer uploads in private storage when supported, migrate legacy public uploads in batches, and harden existing upload-directory access-control files.
 
@@ -251,19 +259,27 @@ For example, a store at `shop.example.com` may use a folder similar to:
 
 = What happens if my host does not allow private upload storage? =
 
-Some shared or managed hosts do not allow WordPress to create folders outside the public web root. If private storage is not available, the plugin falls back to the legacy upload folder:
+Some shared or managed hosts do not allow WordPress to create folders outside the public web root. If private storage is not available, new customer uploads are paused instead of being stored in a public web-accessible folder.
 
-`
-wp-content/uploads/wau-uploads/
-`
-
-When this fallback is used, the plugin updates the folder's `.htaccess` and `web.config` protection files where supported. On Nginx, Caddy, OpenLiteSpeed, or similar servers, directory-level `.htaccess` files may not be honored, so your host may need to block direct web access to:
+For files uploaded before this update, the plugin continues to harden the legacy folder's `.htaccess` and `web.config` protection files where supported. On Nginx, Caddy, OpenLiteSpeed, or similar servers, directory-level `.htaccess` files may not be honored, so your host may need to block direct web access to:
 
 `
 /wp-content/uploads/wau-uploads/
 `
 
-The plugin's secure download links will continue to serve files through WordPress.
+The plugin's secure download links will continue to serve authorized legacy files through WordPress.
+
+On Nginx, use a precedence-safe prefix rule inside the relevant `server` block:
+
+`
+location ^~ /wp-content/uploads/wau-uploads/ {
+    deny all;
+}
+`
+
+OpenLiteSpeed and Caddy use different configuration formats; share the displayed URL path with your host instead of copying the Nginx rule.
+
+On Apache or LiteSpeed, the protection file can be present even when the server is configured to ignore it. While legacy files remain, test a known legacy file URL and confirm that it returns HTTP 403 or 404. The System Status page keeps this verification visible until migration is complete.
 
 You can also review the current storage status and recommended action items from WooCommerce admin under Addon Upload Settings > System Status.
 
@@ -277,15 +293,19 @@ define( 'WAU_PRIVATE_UPLOAD_DIR', '/absolute/private/path/' );
 
 Replace `/absolute/private/path/` with the path provided by your host. The plugin will create a site-specific subfolder inside that path unless the path already ends with the generated site-specific folder name.
 
+The path must be absolute. The plugin resolves it after creation and rejects it if it points back inside the detected document root, WordPress directory, or public uploads directory. When the document root cannot be determined safely, automatic path selection is disabled and a manually configured path is required.
+
 = What happens to files uploaded before this update? =
 
-Existing files in `wp-content/uploads/wau-uploads/` remain accessible through the plugin's secure download handler. When private storage is available, the plugin migrates legacy files to the private folder in small batches during normal site activity.
+Existing files in `wp-content/uploads/wau-uploads/` remain accessible to authorized users through the plugin's secure download handler. When private storage is available, the plugin migrates legacy files to the private folder in small batches during normal site activity.
 
 Existing order links that already use the plugin's secure download handler continue to work. Older direct links to `/wau-uploads/` are rewritten to secure download links when displayed in order metadata.
 
+Logged-in customers are authorized through order ownership. Guest customers are authorized using the WooCommerce order key included in their generated download link. Each new upload also has its own access key.
+
 = What file types are supported? =
 
-The plugin supports image file uploads. For broader file type support or file size/resolution controls, see the [Pro version](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/).
+The plugin supports JPG, PNG, GIF, and WebP image uploads. A 10 MB security ceiling is applied by default and can be adjusted by developers with the `wau_max_upload_size` filter. For additional file types or image size/resolution controls, see the [Pro version](https://imaginate-solutions.com/downloads/woocommerce-addon-uploads/).
 
 = Is this compatible with PHP 8.2? =
 

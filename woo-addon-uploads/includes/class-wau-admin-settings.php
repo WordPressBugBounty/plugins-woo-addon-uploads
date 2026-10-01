@@ -104,7 +104,36 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 		 * @param string $settings settings.
 		 */
 		public function wau_sanitize_addon_settings( $settings ) {
-			return $settings;
+			if ( ! is_array( $settings ) ) {
+				return array();
+			}
+
+			$sanitized = array();
+
+			if ( ! empty( $settings['wau_enable_addon'] ) ) {
+				$sanitized['wau_enable_addon'] = '1';
+			}
+
+			if ( isset( $settings['wau_settings_categories'] ) && is_array( $settings['wau_settings_categories'] ) ) {
+				$sanitized['wau_settings_categories'] = array_values(
+					array_unique(
+						array_filter(
+							array_map(
+								function ( $category ) {
+									if ( ! is_scalar( $category ) ) {
+										return 0;
+									}
+
+									return 'all' === $category ? 'all' : absint( $category );
+								},
+								$settings['wau_settings_categories']
+							)
+						)
+					)
+				);
+			}
+
+			return $sanitized;
 		}
 
 		/**
@@ -146,7 +175,7 @@ if ( ! class_exists( 'wau_admin_settings_class' ) ) {
 
 			$options       = get_option( 'wau_addon_settings' );
 			$selected_cats = array();
-			if ( isset( $options['wau_settings_categories'] ) && ! empty( $options['wau_settings_categories'] ) ) {
+			if ( isset( $options['wau_settings_categories'] ) && is_array( $options['wau_settings_categories'] ) && ! empty( $options['wau_settings_categories'] ) ) {
 				$selected_cats = $options['wau_settings_categories'];
 			}
 

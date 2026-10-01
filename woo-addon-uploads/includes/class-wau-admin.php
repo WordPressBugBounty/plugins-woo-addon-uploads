@@ -117,29 +117,27 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				<?php settings_errors(); ?>
 
 				<?php
-				// Detect servers that do not reliably honor .htaccess protection.
-				$server_software                  = isset( $_SERVER['SERVER_SOFTWARE'] ) ? strtolower( sanitize_text_field( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ) : '';
-				$uses_nginx_location_rules        = ( false !== strpos( $server_software, 'nginx' ) || false !== strpos( $server_software, 'openlitespeed' ) );
-				$requires_server_level_protection = ( $uses_nginx_location_rules || false !== strpos( $server_software, 'caddy' ) );
-				$private_uploads_available        = ( 'yes' === get_option( 'wau_private_uploads_available' ) );
+				$status = $this->get_system_status();
 
-				if ( $requires_server_level_protection && ! $private_uploads_available ) {
+				if ( $status['server_rule_needed'] || $status['legacy_verification_needed'] ) {
 					$upload_dir    = wp_upload_dir();
 					$baseurl_path  = wp_parse_url( $upload_dir['baseurl'], PHP_URL_PATH );
 					$relative_path = trailingslashit( $baseurl_path ? $baseurl_path : '/wp-content/uploads' ) . 'wau-uploads/';
 					?>
 					<div class="notice notice-warning" style="margin: 20px 0; padding: 15px; border-left: 4px solid #ffb900; background: #fff; box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);">
 						<p style="font-weight: bold; font-size: 14px; margin-top: 0; color: #b57c00;">
-							<?php esc_html_e( 'Additional Upload Protection Required', 'woo-addon-uploads' ); ?>
+							<?php esc_html_e( 'Legacy Upload Protection Requires Attention', 'woo-addon-uploads' ); ?>
 						</p>
 						<p>
-							<?php esc_html_e( 'Private upload storage could not be created automatically, and this server may not honor directory-level .htaccess protection.', 'woo-addon-uploads' ); ?>
-							<?php esc_html_e( 'To prevent users from directly accessing legacy uploaded files by their URLs, please block web access to the upload path below in your server configuration, then reload/restart the server.', 'woo-addon-uploads' ); ?>
+							<?php esc_html_e( 'Legacy customer files are still present in the public uploads folder. Confirm that direct requests to the path below return 403 or 404 until migration is complete.', 'woo-addon-uploads' ); ?>
 						</p>
-						<?php if ( $uses_nginx_location_rules ) : ?>
+						<?php if ( ! $status['private_storage_ok'] ) : ?>
+							<p><?php esc_html_e( 'Private upload storage is unavailable, so new customer uploads are paused.', 'woo-addon-uploads' ); ?></p>
+						<?php endif; ?>
+						<?php if ( $status['uses_nginx_location_rules'] ) : ?>
 							<pre style="background: #f6f6f6; padding: 12px; border: 1px solid #ccc; overflow-x: auto; font-family: monospace; font-size: 13px; line-height: 1.5; color: #333; border-radius: 4px;">
 							<?php
-								echo 'location ~* ' . esc_html( $relative_path ) . " {\n";
+								echo 'location ^~ ' . esc_html( $relative_path ) . " {\n";
 								echo "    deny all;\n";
 								echo '}';
 							?>
@@ -148,7 +146,11 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 							<pre style="background: #f6f6f6; padding: 12px; border: 1px solid #ccc; overflow-x: auto; font-family: monospace; font-size: 13px; line-height: 1.5; color: #333; border-radius: 4px;"><?php echo esc_html( $relative_path ); ?></pre>
 						<?php endif; ?>
 						<p style="font-size: 12px; color: #666; margin-bottom: 0;">
-							<?php esc_html_e( 'Note: This rule secures your files from direct public access. The plugin will continue to securely stream images and files to authorized users via the secure download handler.', 'woo-addon-uploads' ); ?>
+							<?php if ( $status['uses_nginx_location_rules'] ) : ?>
+								<?php esc_html_e( 'Add this rule to the applicable Nginx server block and reload Nginx. Secure downloads continue through WordPress.', 'woo-addon-uploads' ); ?>
+							<?php else : ?>
+								<?php esc_html_e( 'Share this path with your host and ask them to block direct web access, or verify that the existing protection returns 403 or 404.', 'woo-addon-uploads' ); ?>
+							<?php endif; ?>
 						</p>
 					</div>
 					<?php
@@ -199,7 +201,8 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 							<?php $this->render_status_row( __( '.htaccess protection', 'woo-addon-uploads' ), $status['htaccess_label'], $status['htaccess_ok'] ? 'success' : 'warning' ); ?>
 							<?php $this->render_status_row( __( 'web.config protection', 'woo-addon-uploads' ), $status['web_config_label'], $status['web_config_ok'] ? 'success' : 'warning' ); ?>
 							<?php $this->render_status_row( __( 'Server software', 'woo-addon-uploads' ), $status['server_software'] ? $status['server_software'] : __( 'Unknown', 'woo-addon-uploads' ), 'info' ); ?>
-							<?php $this->render_status_row( __( 'Server-level protection needed', 'woo-addon-uploads' ), $status['server_rule_needed'] ? __( 'Yes, because private storage is unavailable and this server may ignore .htaccess files.', 'woo-addon-uploads' ) : __( 'No immediate server action detected.', 'woo-addon-uploads' ), $status['server_rule_needed'] ? 'warning' : 'success' ); ?>
+							<?php $this->render_status_row( __( 'Server-level protection needed', 'woo-addon-uploads' ), $status['server_rule_needed'] ? __( 'Yes, while legacy public files remain on this server.', 'woo-addon-uploads' ) : __( 'No server rule currently detected as necessary.', 'woo-addon-uploads' ), $status['server_rule_needed'] ? 'warning' : 'success' ); ?>
+							<?php $this->render_status_row( __( 'Direct-access verification', 'woo-addon-uploads' ), $status['legacy_verification_needed'] ? __( 'Required: confirm a legacy file URL returns 403 or 404.', 'woo-addon-uploads' ) : __( 'No additional verification currently detected.', 'woo-addon-uploads' ), $status['legacy_verification_needed'] ? 'warning' : 'success' ); ?>
 						</tbody>
 					</table>
 
@@ -228,7 +231,7 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 						<h2><?php esc_html_e( 'Server Rule', 'woo-addon-uploads' ); ?></h2>
 						<p><?php esc_html_e( 'Share the following path with your host and ask them to block direct public access to it. Secure download links will continue to work through WordPress.', 'woo-addon-uploads' ); ?></p>
 						<?php if ( $status['uses_nginx_location_rules'] ) : ?>
-							<pre style="max-width: 1060px; background: #f6f6f6; padding: 12px; border: 1px solid #ccc; overflow-x: auto;">location ~* <?php echo esc_html( $status['legacy_url_path'] ); ?> {
+							<pre style="max-width: 1060px; background: #f6f6f6; padding: 12px; border: 1px solid #ccc; overflow-x: auto;">location ^~ <?php echo esc_html( $status['legacy_url_path'] ); ?> {
     deny all;
 }</pre>
 						<?php else : ?>
@@ -255,15 +258,18 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 			$private_ok       = ( 'yes' === $private_status && ! empty( $private_path ) && is_dir( $private_path ) && wp_is_writable( $private_path ) );
 			$server_software  = isset( $_SERVER['SERVER_SOFTWARE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) : '';
 			$server_lower     = strtolower( $server_software );
-			$uses_nginx_rules = ( false !== strpos( $server_lower, 'nginx' ) || false !== strpos( $server_lower, 'openlitespeed' ) );
-			$server_sensitive = ( $uses_nginx_rules || false !== strpos( $server_lower, 'caddy' ) );
-			$migration_done   = (bool) get_option( 'wau_legacy_upload_migration_complete' );
+			$uses_nginx_rules = ( false !== strpos( $server_lower, 'nginx' ) );
+			$uses_openlitespeed = ( false !== strpos( $server_lower, 'openlitespeed' ) );
+			$uses_caddy         = ( false !== strpos( $server_lower, 'caddy' ) );
+			$uses_apache        = ( false !== strpos( $server_lower, 'apache' ) || ( false !== strpos( $server_lower, 'litespeed' ) && ! $uses_openlitespeed ) );
+			$server_unknown     = ( empty( $server_lower ) || ( ! $uses_nginx_rules && ! $uses_openlitespeed && ! $uses_caddy && ! $uses_apache ) );
 			$legacy_count     = $legacy_exists ? $this->count_legacy_upload_files( $legacy_path ) : 0;
 			$htaccess_status  = $this->get_protection_file_status( $legacy_path . '.htaccess', $this->get_expected_htaccess_content(), $legacy_exists );
 			$web_conf_status  = $this->get_protection_file_status( $legacy_path . 'web.config', $this->get_expected_web_config_content(), $legacy_exists );
 			$batch_size       = absint( apply_filters( 'wau_legacy_upload_migration_batch_size', 25 ) );
 			$batch_size       = $batch_size > 0 ? $batch_size : 25;
-			$server_needed    = ( ! $private_ok && $server_sensitive );
+			$server_needed    = ( $legacy_count > 0 && ( $uses_nginx_rules || $uses_openlitespeed || $uses_caddy || $server_unknown ) );
+			$verify_needed    = ( $legacy_count > 0 && $uses_apache );
 
 			return array(
 				'private_storage_ok'       => $private_ok,
@@ -279,11 +285,12 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				'web_config_label'         => $web_conf_status['label'],
 				'server_software'          => $server_software,
 				'server_rule_needed'       => $server_needed,
+				'legacy_verification_needed' => $verify_needed,
 				'uses_nginx_location_rules' => $uses_nginx_rules,
-				'migration_complete'       => $migration_done || ( 0 === $legacy_count && $private_ok ),
-				'migration_label'          => $this->get_migration_label( $private_ok, $migration_done, $legacy_count ),
+				'migration_complete'       => ( 0 === $legacy_count && $private_ok ),
+				'migration_label'          => $this->get_migration_label( $private_ok, $legacy_count ),
 				'migration_batch_size'     => $batch_size,
-				'has_required_action'      => ( ! $private_ok || $server_needed || ( $legacy_exists && ( ! $htaccess_status['ok'] || ! $web_conf_status['ok'] ) ) || ( $private_ok && $legacy_count > 0 && ! $migration_done ) ),
+				'has_required_action'      => ( ! $private_ok || $server_needed || $verify_needed || ( $legacy_exists && ( ! $htaccess_status['ok'] || ! $web_conf_status['ok'] ) ) || ( $private_ok && $legacy_count > 0 ) ),
 			);
 		}
 
@@ -321,7 +328,7 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 			if ( ! $status['private_storage_ok'] ) {
 				$items[] = sprintf(
 					/* translators: %s: PHP constant example. */
-					__( 'Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path.', 'woo-addon-uploads' ),
+					__( 'New customer uploads are paused because private storage is unavailable. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path.', 'woo-addon-uploads' ),
 					'<code>define( \'WAU_PRIVATE_UPLOAD_DIR\', \'/absolute/private/path/\' );</code>'
 				);
 			}
@@ -330,6 +337,14 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				$items[] = sprintf(
 					/* translators: %s: Upload URL path. */
 					__( 'Ask your host to block direct public access to %s. Secure download links will continue to work through WordPress.', 'woo-addon-uploads' ),
+					'<code>' . esc_html( $status['legacy_url_path'] ) . '</code>'
+				);
+			}
+
+			if ( $status['legacy_verification_needed'] ) {
+				$items[] = sprintf(
+					/* translators: %s: Upload URL path. */
+					__( 'Apache and LiteSpeed can be configured to ignore .htaccess files. While legacy files remain, request a known legacy file URL under %s and confirm the server returns 403 or 404. If it does not, ask your host to deny this directory in the virtual-host configuration.', 'woo-addon-uploads' ),
 					'<code>' . esc_html( $status['legacy_url_path'] ) . '</code>'
 				);
 			}
@@ -427,17 +442,16 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 		/**
 		 * Get migration label.
 		 *
-		 * @param bool $private_ok     Whether private storage is available.
-		 * @param bool $migration_done Whether migration is marked complete.
-		 * @param int  $legacy_count   Legacy file count.
+		 * @param bool $private_ok   Whether private storage is available.
+		 * @param int  $legacy_count Legacy file count.
 		 * @return string
 		 */
-		private function get_migration_label( $private_ok, $migration_done, $legacy_count ) {
+		private function get_migration_label( $private_ok, $legacy_count ) {
 			if ( ! $private_ok ) {
 				return __( 'Waiting for private storage', 'woo-addon-uploads' );
 			}
 
-			if ( $migration_done || 0 === $legacy_count ) {
+			if ( 0 === $legacy_count ) {
 				return __( 'Complete or no legacy files found', 'woo-addon-uploads' );
 			}
 

@@ -4,7 +4,7 @@ Donate link: https://www.paypal.me/DhruvinS
 Tags: woocommerce file upload, file upload, product addons, woocommerce addon, print on demand
 Requires at least: 5.0
 Tested up to: 7.1
-Stable tag: 1.7.6
+Stable tag: 1.7.7
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
@@ -142,6 +142,12 @@ The manual installation method involves downloading our eCommerce plugin and upl
 
 == Changelog ==
 
+= 1.7.7 (09.10.2026) =
+* Security fix: Encrypt legacy public uploads with authenticated encryption when private filesystem storage cannot be created, then remove the verified plaintext originals.
+* Security fix: Store new uploads directly as opaque encrypted containers when private filesystem storage is unavailable, without writing plaintext into the public uploads folder.
+* Reliability fix: Verify each encrypted migration by byte size and SHA-256 before deleting its public plaintext source.
+* System Status: Report encrypted fallback availability, encrypted container totals, and the number of public plaintext files still awaiting migration.
+
 = 1.7.6 (26.09.2026) =
 * Security fix: Prevent new uploads from falling back to the public uploads directory when private storage is unavailable.
 * Security fix: Require exact file and access-key matches when authorizing downloads for cart sessions, order owners, guest customers, and WooCommerce managers/admins.
@@ -259,9 +265,17 @@ For example, a store at `shop.example.com` may use a folder similar to:
 
 = What happens if my host does not allow private upload storage? =
 
-Some shared or managed hosts do not allow WordPress to create folders outside the public web root. If private storage is not available, new customer uploads are paused instead of being stored in a public web-accessible folder.
+Some shared or managed hosts do not allow WordPress to create folders outside the public web root. If private storage is not available, the plugin stores new uploads as authenticated encrypted containers with opaque names under:
 
-For files uploaded before this update, the plugin continues to harden the legacy folder's `.htaccess` and `web.config` protection files where supported. On Nginx, Caddy, OpenLiteSpeed, or similar servers, directory-level `.htaccess` files may not be honored, so your host may need to block direct web access to:
+`
+/wp-content/uploads/wau-uploads/encrypted/<site-specific-folder>/
+`
+
+The site-specific folder uses the site host, blog ID, and a short hash so subdomain and multisite stores do not share encrypted storage. The original customer filename is not used as the container filename, and plaintext upload contents are never written to that directory. Direct requests can retrieve only authenticated ciphertext, which is decrypted exclusively by the plugin's authorized download handler.
+
+Files uploaded before this update are moved to private storage when available. Otherwise, they are encrypted and verified in small batches, and each public plaintext original is deleted only after its encrypted copy matches the original byte size and SHA-256 hash.
+
+While public plaintext files are still awaiting migration, the plugin continues to harden the legacy folder's `.htaccess` and `web.config` protection files where supported. On Nginx, Caddy, OpenLiteSpeed, or similar servers, directory-level `.htaccess` files may not be honored, so your host should temporarily block direct web access to:
 
 `
 /wp-content/uploads/wau-uploads/
@@ -279,7 +293,7 @@ location ^~ /wp-content/uploads/wau-uploads/ {
 
 OpenLiteSpeed and Caddy use different configuration formats; share the displayed URL path with your host instead of copying the Nginx rule.
 
-On Apache or LiteSpeed, the protection file can be present even when the server is configured to ignore it. While legacy files remain, test a known legacy file URL and confirm that it returns HTTP 403 or 404. The System Status page keeps this verification visible until migration is complete.
+On Apache or LiteSpeed, the protection file can be present even when the server is configured to ignore it. While public plaintext files remain, test a known legacy file URL and confirm that it returns HTTP 403 or 404. The System Status page keeps this verification visible until migration is complete.
 
 You can also review the current storage status and recommended action items from WooCommerce admin under Addon Upload Settings > System Status.
 
@@ -297,11 +311,13 @@ The path must be absolute. The plugin resolves it after creation and rejects it 
 
 = What happens to files uploaded before this update? =
 
-Existing files in `wp-content/uploads/wau-uploads/` remain accessible to authorized users through the plugin's secure download handler. When private storage is available, the plugin migrates legacy files to the private folder in small batches during normal site activity.
+Existing files in `wp-content/uploads/wau-uploads/` remain accessible to authorized users through the plugin's secure download handler. The plugin migrates them in small batches during normal site activity. It moves them outside the web root when private storage is available; otherwise, it converts them into opaque authenticated encrypted containers and deletes the verified public plaintext originals.
 
 Existing order links that already use the plugin's secure download handler continue to work. Older direct links to `/wau-uploads/` are rewritten to secure download links when displayed in order metadata.
 
 Logged-in customers are authorized through order ownership. Guest customers are authorized using the WooCommerce order key included in their generated download link. Each new upload also has its own access key.
+
+The encryption key is stored in the WordPress database and is not embedded in the encrypted files. Back up the WordPress database and uploaded files together; encrypted fallback files cannot be recovered without that database key.
 
 = What file types are supported? =
 

@@ -2,7 +2,7 @@
 # This file is distributed under the same license as the File Uploads Addon for WooCommerce plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: File Uploads Addon for WooCommerce 1.7.6\n"
+"Project-Id-Version: File Uploads Addon for WooCommerce 1.7.7\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo-addon-uploads\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -87,7 +87,7 @@ msgid "Legacy customer files are still present in the public uploads folder. Con
 msgstr ""
 
 #: includes/class-wau-admin.php:135
-msgid "Private upload storage is unavailable, so new customer uploads are paused."
+msgid "Private and encrypted storage are unavailable, so new customer uploads are paused."
 msgstr ""
 
 #: includes/class-wau-admin.php:150
@@ -211,8 +211,8 @@ msgstr ""
 msgid "Action Items"
 msgstr ""
 
-#: includes/class-wau-admin.php:226
-msgid "No immediate action is required. New uploads are using private storage and legacy files are either migrated or not present."
+#: includes/class-wau-admin.php:228
+msgid "No immediate security action is required. New uploads are using private storage or authenticated encrypted storage, and no public plaintext customer files remain."
 msgstr ""
 
 #: includes/class-wau-admin.php:231
@@ -236,8 +236,8 @@ msgid "Unavailable"
 msgstr ""
 
 #. translators: %s: PHP constant example.
-#: includes/class-wau-admin.php:331
-msgid "New customer uploads are paused because private storage is unavailable. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path."
+#: includes/class-wau-admin.php:350
+msgid "New customer uploads are paused because neither private nor encrypted storage is available. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path."
 msgstr ""
 
 #. translators: %s: Upload URL path.
@@ -258,8 +258,8 @@ msgstr ""
 msgid "The legacy web.config file is missing or outdated. The plugin will try to update it automatically; if it remains outdated, check file permissions on the legacy upload folder."
 msgstr ""
 
-#: includes/class-wau-admin.php:361
-msgid "Legacy files are still being migrated to private storage in small batches. Keep the plugin active and allow normal site traffic or admin page visits to continue the migration."
+#: includes/class-wau-admin.php:380
+msgid "Public plaintext files are still being migrated in small batches. Keep the plugin active and allow normal site traffic or admin page visits to continue the migration."
 msgstr ""
 
 #: includes/class-wau-admin.php:409
@@ -282,8 +282,8 @@ msgstr ""
 msgid "Present but outdated"
 msgstr ""
 
-#: includes/class-wau-admin.php:451
-msgid "Waiting for private storage"
+#: includes/class-wau-admin.php:520
+msgid "Blocked: no secure storage backend is available"
 msgstr ""
 
 #: includes/class-wau-admin.php:455
@@ -330,8 +330,8 @@ msgstr ""
 msgid "Invalid file type. Only JPG, PNG, GIF, and WebP files are allowed."
 msgstr ""
 
-#: includes/class-wau-front-end.php:891
-msgid "File upload is temporarily unavailable because private upload storage could not be created. Please contact the store administrator."
+#: includes/class-wau-front-end.php:1433
+msgid "File upload is temporarily unavailable because secure upload storage could not be created. Please contact the store administrator."
 msgstr ""
 
 #: includes/class-wau-front-end.php:898
@@ -371,4 +371,36 @@ msgstr ""
 
 #: includes/class-wau-front-end.php:1583
 msgid "File does not exist."
+msgstr ""
+
+#: includes/class-wau-admin.php:190
+msgid "Encrypted fallback storage"
+msgstr ""
+
+#: includes/class-wau-admin.php:191
+msgid "Encrypted container count"
+msgstr ""
+
+#: includes/class-wau-admin.php:196
+msgid "Public plaintext file count"
+msgstr ""
+
+#: includes/class-wau-admin.php:290
+msgid "Available with authenticated encryption"
+msgstr ""
+
+#: includes/class-wau-admin.php:290
+msgid "Unavailable: encryption key is missing"
+msgstr ""
+
+#: includes/class-wau-admin.php:344
+msgid "Encrypted upload containers exist, but their encryption key is missing from the WordPress database. Restore the wau_encryption_key option from a matching database backup. Do not delete the encrypted files or generate a replacement key."
+msgstr ""
+
+#: includes/class-wau-front-end.php:1457
+msgid "File upload failed while creating secure encrypted storage. Please try again."
+msgstr ""
+
+#: includes/class-wau-front-end.php:2163
+msgid "The encrypted file could not be authenticated."
 msgstr ""

@@ -24,6 +24,9 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 	 */
 	class wau_front_end_class {
 
+		const WAU_ENCRYPTED_FILE_MAGIC = 'WAUENC01';
+		const WAU_ENCRYPTED_CHUNK_SIZE = 1048576;
+
 		/**
 		 * Resolved private upload directory for the current request.
 		 *
@@ -47,7 +50,6 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			add_filter( 'woocommerce_order_item_display_meta_value', array( $this, 'wau_filter_order_item_uploaded_media_meta_value' ), 10, 3 );
 
 			add_filter( 'wau_category_checks', array( $this, 'wau_check_category_allowed' ), 10, 2 );
-
 			add_action( 'woocommerce_cart_item_removed', array( $this, 'wau_remove_cart_action' ), 10, 2 );
 
 			add_action( 'admin_post_wau_secure_download', array( $this, 'wau_secure_file_download' ) );
@@ -165,7 +167,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		}
 
 		/**
-		 * Move legacy public uploads into private storage in small batches.
+		 * Move legacy public uploads into private storage or encrypt them in place.
 		 *
 		 * @since 1.7.5
 		 *
@@ -175,15 +177,22 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			$private_upload_dir = $this->wau_get_private_upload_directory();
 			$legacy_upload_dir  = $this->wau_get_legacy_upload_directory();
 
-			if ( empty( $private_upload_dir['path'] ) || empty( $legacy_upload_dir['path'] ) ) {
+			if ( empty( $legacy_upload_dir['path'] ) || ! is_dir( $legacy_upload_dir['path'] ) ) {
 				return;
 			}
 
-			$private_path = $private_upload_dir['path'];
+			if ( get_transient( 'wau_legacy_upload_migration_lock' ) ) {
+				return;
+			}
+
+			set_transient( 'wau_legacy_upload_migration_lock', 1, 5 * MINUTE_IN_SECONDS );
+
+			$private_path = ! empty( $private_upload_dir['path'] ) ? $private_upload_dir['path'] : '';
 			$legacy_path  = $legacy_upload_dir['path'];
 
-			if ( $this->wau_paths_match( $private_path, $legacy_path ) || ! is_dir( $legacy_path ) ) {
+			if ( $private_path && $this->wau_paths_match( $private_path, $legacy_path ) ) {
 				update_option( 'wau_legacy_upload_migration_complete', current_time( 'mysql' ), false );
+				delete_transient( 'wau_legacy_upload_migration_lock' );
 				return;
 			}
 
@@ -194,7 +203,14 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			}
 			WP_Filesystem();
 
-			if ( ! $wp_filesystem || ! $this->wau_prepare_upload_directory( $private_path ) ) {
+			$encrypted_path = '';
+			if ( empty( $private_path ) ) {
+				$encrypted_dir  = $this->wau_get_encrypted_upload_directory( true );
+				$encrypted_path = $encrypted_dir['path'];
+			}
+
+			if ( ( $private_path && ! $wp_filesystem ) || ( empty( $private_path ) && empty( $encrypted_path ) ) ) {
+				delete_transient( 'wau_legacy_upload_migration_lock' );
 				return;
 			}
 
@@ -206,6 +222,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			try {
 				$directory = new DirectoryIterator( $legacy_path );
 			} catch ( Exception $exception ) {
+				delete_transient( 'wau_legacy_upload_migration_lock' );
 				return;
 			}
 
@@ -216,7 +233,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 
 				$file_name = $file_info->getFilename();
 
-				if ( in_array( strtolower( $file_name ), array( '.htaccess', 'web.config', 'index.php' ), true ) ) {
+				if ( in_array( strtolower( $file_name ), array( '.htaccess', 'web.config', 'index.php' ), true ) || '.wau-pending' === substr( $file_name, -12 ) ) {
 					continue;
 				}
 
@@ -225,7 +242,19 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					break;
 				}
 
-				$source      = trailingslashit( $legacy_path ) . $file_name;
+				$source = trailingslashit( $legacy_path ) . $file_name;
+
+				if ( empty( $private_path ) ) {
+					if ( $this->wau_encrypt_and_verify_file( $source, $file_name ) ) {
+						wp_delete_file( $source );
+						wp_delete_file( $source . '.wau-pending' );
+						$migrated++;
+					} else {
+						$remaining = true;
+					}
+					continue;
+				}
+
 				$destination = trailingslashit( $private_path ) . $file_name;
 
 				if ( file_exists( $destination ) ) {
@@ -250,6 +279,8 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			if ( ! $remaining && $migrated < $batch_size ) {
 				update_option( 'wau_legacy_upload_migration_complete', current_time( 'mysql' ), false );
 			}
+
+			delete_transient( 'wau_legacy_upload_migration_lock' );
 		}
 
 		/**
@@ -334,6 +365,509 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		}
 
 		/**
+		 * Get the public directory used only for authenticated encrypted containers.
+		 *
+		 * The files in this directory contain authenticated ciphertext and use opaque
+		 * names. Plaintext is never written here.
+		 *
+		 * @param bool $create Whether to create and protect the directory.
+		 * @return array
+		 */
+		private function wau_get_encrypted_upload_directory( $create = false ) {
+			$legacy_dir = $this->wau_get_legacy_upload_directory();
+
+			if ( empty( $legacy_dir['path'] ) || ! $this->wau_encryption_is_available() ) {
+				return array( 'path' => '', 'url' => '' );
+			}
+
+			$site_key  = $this->wau_get_site_storage_key();
+			$directory = trailingslashit( $legacy_dir['path'] ) . 'encrypted/' . $site_key . '/';
+
+			if ( $create ) {
+				$this->wau_ensure_upload_directory_protection( true );
+
+				if ( ! $this->wau_prepare_upload_directory( $directory ) || ! $this->wau_get_encryption_key( true ) ) {
+					return array( 'path' => '', 'url' => '' );
+				}
+
+				$this->wau_write_storage_protection_files( $directory );
+			}
+
+			return array(
+				'path' => $directory,
+				'url'  => trailingslashit( $legacy_dir['url'] ) . 'encrypted/' . $site_key . '/',
+			);
+		}
+
+		/**
+		 * Check whether an authenticated encryption implementation is available.
+		 *
+		 * @return bool
+		 */
+		private function wau_encryption_is_available() {
+			$sodium_available = function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_push' )
+				&& function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_pull' );
+			$openssl_available = function_exists( 'openssl_encrypt' )
+				&& function_exists( 'openssl_decrypt' )
+				&& in_array( 'aes-256-gcm', openssl_get_cipher_methods(), true );
+
+			return $sodium_available || $openssl_available;
+		}
+
+		/**
+		 * Get or create this site's encryption key.
+		 *
+		 * @param bool $create Whether to create a key when no encrypted files exist.
+		 * @return string|false Raw 32-byte key, or false.
+		 */
+		private function wau_get_encryption_key( $create = false ) {
+			$encoded_key = get_option( 'wau_encryption_key', '' );
+			$key         = is_string( $encoded_key ) ? base64_decode( $encoded_key, true ) : false;
+
+			if ( is_string( $key ) && 32 === strlen( $key ) ) {
+				return $key;
+			}
+
+			if ( ! $create ) {
+				return false;
+			}
+
+			$legacy_dir    = $this->wau_get_legacy_upload_directory();
+			$encrypted_dir = ! empty( $legacy_dir['path'] ) ? trailingslashit( $legacy_dir['path'] ) . 'encrypted/' . $this->wau_get_site_storage_key() . '/' : '';
+			if ( $encrypted_dir && is_dir( $encrypted_dir ) ) {
+				try {
+					$directory = new DirectoryIterator( $encrypted_dir );
+					foreach ( $directory as $file_info ) {
+						if ( ! $file_info->isDot() && $file_info->isFile() && '.wau' === strtolower( substr( $file_info->getFilename(), -4 ) ) ) {
+							return false;
+						}
+					}
+				} catch ( Exception $exception ) {
+					return false;
+				}
+			}
+
+			try {
+				$new_key = random_bytes( 32 );
+			} catch ( Throwable $exception ) {
+				return false;
+			}
+
+			$encoded_new_key = base64_encode( $new_key );
+			if ( ! add_option( 'wau_encryption_key', $encoded_new_key, '', false ) ) {
+				$existing_key = get_option( 'wau_encryption_key', '' );
+				$decoded_key  = is_string( $existing_key ) ? base64_decode( $existing_key, true ) : false;
+
+				if ( is_string( $decoded_key ) && 32 === strlen( $decoded_key ) ) {
+					return $decoded_key;
+				}
+
+				update_option( 'wau_encryption_key', $encoded_new_key, false );
+			}
+			$encoded_key = get_option( 'wau_encryption_key', '' );
+			$key         = is_string( $encoded_key ) ? base64_decode( $encoded_key, true ) : false;
+
+			return is_string( $key ) && 32 === strlen( $key ) ? $key : false;
+		}
+
+		/**
+		 * Resolve the opaque encrypted-container path for a logical filename.
+		 *
+		 * @param string $file_name        Logical filename stored in cart/order data.
+		 * @param bool   $create_directory Whether to create the fallback directory.
+		 * @return string|false
+		 */
+		private function wau_get_encrypted_file_path( $file_name, $create_directory = false ) {
+			$safe_filename = sanitize_file_name( basename( $file_name ) );
+			$directory     = $this->wau_get_encrypted_upload_directory( $create_directory );
+			$key           = $this->wau_get_encryption_key( $create_directory );
+
+			if ( empty( $safe_filename ) || empty( $directory['path'] ) || ! $key ) {
+				return false;
+			}
+
+			$opaque_name = substr( hash_hmac( 'sha256', $safe_filename, $key ), 0, 40 ) . '.wau';
+
+			return trailingslashit( $directory['path'] ) . $opaque_name;
+		}
+
+		/**
+		 * Encrypt a plaintext file and verify it before the caller removes the source.
+		 *
+		 * @param string $source_path Plaintext source path.
+		 * @param string $file_name   Logical filename.
+		 * @return bool
+		 */
+		private function wau_encrypt_and_verify_file( $source_path, $file_name ) {
+			if ( ! is_file( $source_path ) ) {
+				return false;
+			}
+
+			$destination = $this->wau_get_encrypted_file_path( $file_name, true );
+			$source_hash = @hash_file( 'sha256', $source_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$source_size = @filesize( $source_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+			if ( ! $destination || false === $source_hash || false === $source_size ) {
+				return false;
+			}
+
+			if ( file_exists( $destination ) && $this->wau_verify_encrypted_file( $destination, $file_name, $source_hash, $source_size ) ) {
+				return true;
+			}
+
+			try {
+				$temp_path = $destination . '.tmp-' . bin2hex( random_bytes( 4 ) );
+			} catch ( Throwable $exception ) {
+				return false;
+			}
+
+			if ( ! $this->wau_encrypt_file( $source_path, $temp_path, $file_name, $source_size )
+				|| ! $this->wau_verify_encrypted_file( $temp_path, $file_name, $source_hash, $source_size ) ) {
+				wp_delete_file( $temp_path );
+				return false;
+			}
+
+			if ( file_exists( $destination ) ) {
+				wp_delete_file( $destination );
+			}
+
+			if ( ! @rename( $temp_path, $destination ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				wp_delete_file( $temp_path );
+				return false;
+			}
+
+			return $this->wau_verify_encrypted_file( $destination, $file_name, $source_hash, $source_size );
+		}
+
+		/**
+		 * Write a versioned authenticated-encryption container.
+		 *
+		 * @param string $source_path      Plaintext source path.
+		 * @param string $destination_path Container destination path.
+		 * @param string $file_name        Logical filename.
+		 * @param int    $plain_size       Plaintext byte size.
+		 * @return bool
+		 */
+		private function wau_encrypt_file( $source_path, $destination_path, $file_name, $plain_size ) {
+			$key = $this->wau_get_encryption_key( true );
+
+			if ( ! $key ) {
+				return false;
+			}
+
+			$use_sodium = function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_push' );
+			$algorithm  = $use_sodium ? 'S' : 'O';
+			$prefix     = self::WAU_ENCRYPTED_FILE_MAGIC . $algorithm . str_pad( (string) $plain_size, 20, '0', STR_PAD_LEFT );
+			$input      = @fopen( $source_path, 'rb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$output     = @fopen( $destination_path, 'xb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+			if ( ! $input || ! $output || ! $this->wau_write_all( $output, $prefix ) ) {
+				if ( is_resource( $input ) ) {
+					fclose( $input );
+				}
+				if ( is_resource( $output ) ) {
+					fclose( $output );
+				}
+				return false;
+			}
+
+			try {
+				$success = $use_sodium
+					? $this->wau_encrypt_stream_sodium( $input, $output, $key, $prefix, $file_name )
+					: $this->wau_encrypt_stream_openssl( $input, $output, $key, $prefix, $file_name );
+			} catch ( Throwable $exception ) {
+				$success = false;
+			}
+
+			fclose( $input );
+			fclose( $output );
+
+			return $success;
+		}
+
+		/**
+		 * Encrypt a stream with libsodium secretstream.
+		 */
+		private function wau_encrypt_stream_sodium( $input, $output, $key, $prefix, $file_name ) {
+			list( $state, $header ) = sodium_crypto_secretstream_xchacha20poly1305_init_push( $key );
+
+			if ( ! $this->wau_write_all( $output, $header ) ) {
+				return false;
+			}
+
+			$current = fread( $input, self::WAU_ENCRYPTED_CHUNK_SIZE );
+			if ( false === $current ) {
+				return false;
+			}
+
+			do {
+				$next = feof( $input ) ? '' : fread( $input, self::WAU_ENCRYPTED_CHUNK_SIZE );
+				if ( false === $next ) {
+					return false;
+				}
+
+				$is_final   = feof( $input ) && '' === $next;
+				$tag        = $is_final ? SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL : SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE;
+				$ciphertext = sodium_crypto_secretstream_xchacha20poly1305_push( $state, $current, $prefix . $file_name, $tag );
+
+				if ( ! $this->wau_write_all( $output, pack( 'N', strlen( $ciphertext ) ) . $ciphertext ) ) {
+					return false;
+				}
+
+				$current = $next;
+			} while ( ! $is_final );
+
+			return true;
+		}
+
+		/**
+		 * Encrypt a stream with independently authenticated AES-256-GCM records.
+		 */
+		private function wau_encrypt_stream_openssl( $input, $output, $key, $prefix, $file_name ) {
+			if ( ! function_exists( 'openssl_encrypt' ) || ! in_array( 'aes-256-gcm', openssl_get_cipher_methods(), true ) ) {
+				return false;
+			}
+
+			$current = fread( $input, self::WAU_ENCRYPTED_CHUNK_SIZE );
+			$index   = 0;
+			if ( false === $current ) {
+				return false;
+			}
+
+			do {
+				$next = feof( $input ) ? '' : fread( $input, self::WAU_ENCRYPTED_CHUNK_SIZE );
+				if ( false === $next ) {
+					return false;
+				}
+
+				$is_final = feof( $input ) && '' === $next;
+				$flags    = $is_final ? "\x01" : "\x00";
+				$length   = pack( 'N', strlen( $current ) );
+				$iv       = random_bytes( 12 );
+				$tag      = '';
+				$aad      = $prefix . $file_name . pack( 'N', $index ) . $flags . $length;
+				$ciphertext = openssl_encrypt( $current, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $aad, 16 );
+
+				if ( false === $ciphertext || 16 !== strlen( $tag ) || ! $this->wau_write_all( $output, $flags . $length . $iv . $tag . $ciphertext ) ) {
+					return false;
+				}
+
+				$current = $next;
+				$index++;
+			} while ( ! $is_final );
+
+			return true;
+		}
+
+		/**
+		 * Verify an encrypted file against the original content details.
+		 */
+		private function wau_verify_encrypted_file( $file_path, $file_name, $expected_hash, $expected_size ) {
+			$hash_context = hash_init( 'sha256' );
+			$actual_size  = 0;
+			$success      = $this->wau_read_encrypted_file(
+				$file_path,
+				$file_name,
+				function ( $chunk ) use ( $hash_context, &$actual_size ) {
+					hash_update( $hash_context, $chunk );
+					$actual_size += strlen( $chunk );
+					return true;
+				}
+			);
+
+			$actual_hash = hash_final( $hash_context );
+
+			return $success && (int) $expected_size === $actual_size && hash_equals( $expected_hash, $actual_hash );
+		}
+
+		/**
+		 * Read and authenticate an encrypted container chunk by chunk.
+		 *
+		 * @param string   $file_path Container path.
+		 * @param string   $file_name Logical filename.
+		 * @param callable $consumer  Receives each plaintext chunk.
+		 * @return bool
+		 */
+		private function wau_read_encrypted_file( $file_path, $file_name, $consumer ) {
+			$key    = $this->wau_get_encryption_key();
+			$handle = @fopen( $file_path, 'rb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+			if ( ! $key || ! $handle ) {
+				return false;
+			}
+
+			$prefix = $this->wau_read_exact( $handle, 29 );
+			if ( false === $prefix || self::WAU_ENCRYPTED_FILE_MAGIC !== substr( $prefix, 0, 8 ) || ! ctype_digit( substr( $prefix, 9, 20 ) ) ) {
+				fclose( $handle );
+				return false;
+			}
+
+			$algorithm   = substr( $prefix, 8, 1 );
+			$expected_size = (int) ltrim( substr( $prefix, 9, 20 ), '0' );
+			$total_size  = 0;
+			$success     = 'S' === $algorithm
+				? $this->wau_decrypt_stream_sodium( $handle, $key, $prefix, $file_name, $consumer, $total_size )
+				: ( 'O' === $algorithm ? $this->wau_decrypt_stream_openssl( $handle, $key, $prefix, $file_name, $consumer, $total_size ) : false );
+
+			fclose( $handle );
+
+			return $success && $expected_size === $total_size;
+		}
+
+		/**
+		 * Decrypt a libsodium container stream.
+		 */
+		private function wau_decrypt_stream_sodium( $handle, $key, $prefix, $file_name, $consumer, &$total_size ) {
+			if ( ! function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_pull' ) ) {
+				return false;
+			}
+
+			$header = $this->wau_read_exact( $handle, SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES );
+			if ( false === $header ) {
+				return false;
+			}
+
+			$state = sodium_crypto_secretstream_xchacha20poly1305_init_pull( $header, $key );
+			while ( true ) {
+				$packed_length = $this->wau_read_exact( $handle, 4 );
+				if ( false === $packed_length ) {
+					return false;
+				}
+
+				$length = unpack( 'Nlength', $packed_length )['length'];
+				if ( $length > self::WAU_ENCRYPTED_CHUNK_SIZE + SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES ) {
+					return false;
+				}
+
+				$ciphertext = $this->wau_read_exact( $handle, $length );
+				$result     = false === $ciphertext ? false : sodium_crypto_secretstream_xchacha20poly1305_pull( $state, $ciphertext, $prefix . $file_name );
+				if ( false === $result ) {
+					return false;
+				}
+
+				list( $plaintext, $tag ) = $result;
+				$total_size += strlen( $plaintext );
+				if ( false === call_user_func( $consumer, $plaintext ) ) {
+					return false;
+				}
+
+				if ( SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL === $tag ) {
+					return '' === fread( $handle, 1 );
+				}
+			}
+		}
+
+		/**
+		 * Decrypt an AES-256-GCM container stream.
+		 */
+		private function wau_decrypt_stream_openssl( $handle, $key, $prefix, $file_name, $consumer, &$total_size ) {
+			if ( ! function_exists( 'openssl_decrypt' ) ) {
+				return false;
+			}
+
+			$index = 0;
+			while ( true ) {
+				$flags  = $this->wau_read_exact( $handle, 1 );
+				$length = $this->wau_read_exact( $handle, 4 );
+				if ( false === $flags || false === $length || ( "\x00" !== $flags && "\x01" !== $flags ) ) {
+					return false;
+				}
+
+				$plain_length = unpack( 'Nlength', $length )['length'];
+				if ( $plain_length > self::WAU_ENCRYPTED_CHUNK_SIZE ) {
+					return false;
+				}
+
+				$iv         = $this->wau_read_exact( $handle, 12 );
+				$tag        = $this->wau_read_exact( $handle, 16 );
+				$ciphertext = $this->wau_read_exact( $handle, $plain_length );
+				if ( false === $iv || false === $tag || false === $ciphertext ) {
+					return false;
+				}
+
+				$aad       = $prefix . $file_name . pack( 'N', $index ) . $flags . $length;
+				$plaintext = openssl_decrypt( $ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, $aad );
+				if ( false === $plaintext || strlen( $plaintext ) !== $plain_length ) {
+					return false;
+				}
+
+				$total_size += strlen( $plaintext );
+				if ( false === call_user_func( $consumer, $plaintext ) ) {
+					return false;
+				}
+
+				if ( "\x01" === $flags ) {
+					return '' === fread( $handle, 1 );
+				}
+
+				$index++;
+			}
+		}
+
+		/**
+		 * Read exactly the requested number of bytes from a file handle.
+		 */
+		private function wau_read_exact( $handle, $length ) {
+			$data = '';
+
+			while ( strlen( $data ) < $length && ! feof( $handle ) ) {
+				$chunk = fread( $handle, $length - strlen( $data ) );
+				if ( false === $chunk || '' === $chunk ) {
+					break;
+				}
+				$data .= $chunk;
+			}
+
+			return strlen( $data ) === $length ? $data : false;
+		}
+
+		/**
+		 * Write all bytes to a file handle.
+		 */
+		private function wau_write_all( $handle, $data ) {
+			$written = 0;
+			$length  = strlen( $data );
+
+			while ( $written < $length ) {
+				$result = fwrite( $handle, substr( $data, $written ) );
+				if ( false === $result || 0 === $result ) {
+					return false;
+				}
+				$written += $result;
+			}
+
+			return true;
+		}
+
+		/**
+		 * Read encrypted-container metadata without decrypting its contents.
+		 *
+		 * @return array|false
+		 */
+		private function wau_get_encrypted_file_metadata( $file_path ) {
+			if ( '.wau' !== strtolower( substr( $file_path, -4 ) ) ) {
+				return false;
+			}
+
+			$handle = @fopen( $file_path, 'rb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! $handle ) {
+				return false;
+			}
+
+			$prefix = $this->wau_read_exact( $handle, 29 );
+			fclose( $handle );
+
+			if ( false === $prefix || self::WAU_ENCRYPTED_FILE_MAGIC !== substr( $prefix, 0, 8 ) || ! ctype_digit( substr( $prefix, 9, 20 ) ) ) {
+				return false;
+			}
+
+			return array(
+				'algorithm' => substr( $prefix, 8, 1 ),
+				'size'      => (int) ltrim( substr( $prefix, 9, 20 ), '0' ),
+			);
+		}
+
+		/**
 		 * Get the preferred private upload directory for this site.
 		 *
 		 * @since 1.7.5
@@ -412,6 +946,15 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					'path'    => $private_upload_dir['path'],
 					'url'     => '',
 					'storage' => 'private',
+				);
+			}
+
+			$encrypted_upload_dir = $this->wau_get_encrypted_upload_directory( true );
+			if ( ! empty( $encrypted_upload_dir['path'] ) ) {
+				return array(
+					'path'    => $encrypted_upload_dir['path'],
+					'url'     => '',
+					'storage' => 'encrypted',
 				);
 			}
 
@@ -586,8 +1129,14 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		private function wau_mark_upload_pending( $file_path ) {
 			global $wp_filesystem;
 
-			if ( $wp_filesystem && $this->wau_is_allowed_upload_path( $file_path ) ) {
+			if ( ! $this->wau_is_allowed_upload_path( $file_path ) ) {
+				return;
+			}
+
+			if ( $wp_filesystem ) {
 				$wp_filesystem->put_contents( $file_path . '.wau-pending', (string) time(), FS_CHMOD_FILE );
+			} else {
+				@file_put_contents( $file_path . '.wau-pending', (string) time(), LOCK_EX ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			}
 		}
 
@@ -615,8 +1164,16 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				return;
 			}
 
-			$private_upload_dir = $this->wau_get_private_upload_directory();
-			if ( empty( $private_upload_dir['path'] ) || ! is_dir( $private_upload_dir['path'] ) ) {
+			$private_upload_dir   = $this->wau_get_private_upload_directory();
+			$encrypted_upload_dir = $this->wau_get_encrypted_upload_directory();
+			$cleanup_directories  = array_filter(
+				array(
+					$private_upload_dir['path'],
+					$encrypted_upload_dir['path'],
+				)
+			);
+
+			if ( empty( $cleanup_directories ) ) {
 				return;
 			}
 
@@ -628,30 +1185,36 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			$retention = $retention > 0 ? $retention : 2 * DAY_IN_SECONDS;
 			$cutoff    = time() - $retention;
 
-			try {
-				$directory = new DirectoryIterator( $private_upload_dir['path'] );
-			} catch ( Exception $exception ) {
-				return;
-			}
-
-			foreach ( $directory as $file_info ) {
-				$file_name = $file_info->getFilename();
-
-				if ( $file_info->isDot() || ! $file_info->isFile() || '.wau-pending' !== substr( $file_name, -12 ) ) {
+			foreach ( $cleanup_directories as $cleanup_directory ) {
+				if ( ! is_dir( $cleanup_directory ) ) {
 					continue;
 				}
 
-				$marker_path = $file_info->getPathname();
-				if ( $file_info->getMTime() > $cutoff ) {
+				try {
+					$directory = new DirectoryIterator( $cleanup_directory );
+				} catch ( Exception $exception ) {
 					continue;
 				}
 
-				$upload_path = substr( $marker_path, 0, -12 );
-				if ( file_exists( $upload_path ) && $this->wau_is_allowed_upload_path( $upload_path ) ) {
-					wp_delete_file( $upload_path );
-				}
+				foreach ( $directory as $file_info ) {
+					$file_name = $file_info->getFilename();
 
-				wp_delete_file( $marker_path );
+					if ( $file_info->isDot() || ! $file_info->isFile() || '.wau-pending' !== substr( $file_name, -12 ) ) {
+						continue;
+					}
+
+					$marker_path = $file_info->getPathname();
+					if ( $file_info->getMTime() > $cutoff ) {
+						continue;
+					}
+
+					$upload_path = substr( $marker_path, 0, -12 );
+					if ( file_exists( $upload_path ) && $this->wau_is_allowed_upload_path( $upload_path ) ) {
+						wp_delete_file( $upload_path );
+					}
+
+					wp_delete_file( $marker_path );
+				}
 			}
 		}
 
@@ -794,11 +1357,6 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 			}
 			WP_Filesystem();
 
-			if ( ! $wp_filesystem ) {
-				wc_add_notice( __( 'File upload failed. Please try again.', 'woo-addon-uploads' ), 'error' );
-				return $cart_item_meta;
-			}
-
 			// Check if file is uploaded.
 			$post_file = wp_unslash( $_FILES );
 			$postdata  = wp_unslash( $_POST );
@@ -888,7 +1446,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 
 				// Ensure directory exists.
 				if ( empty( $custom_dir ) || ! $this->wau_prepare_upload_directory( $custom_dir ) ) {
-					wc_add_notice( __( 'File upload is temporarily unavailable because private upload storage could not be created. Please contact the store administrator.', 'woo-addon-uploads' ), 'error' );
+					wc_add_notice( __( 'File upload is temporarily unavailable because secure upload storage could not be created. Please contact the store administrator.', 'woo-addon-uploads' ), 'error' );
 					return $cart_item_meta;
 				}
 
@@ -896,6 +1454,42 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				$free_space         = function_exists( 'disk_free_space' ) ? @disk_free_space( $custom_dir ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				if ( false !== $free_space && $free_space - $actual_size < $minimum_free_space ) {
 					wc_add_notice( __( 'File upload is temporarily unavailable because the server is low on storage space.', 'woo-addon-uploads' ), 'error' );
+					return $cart_item_meta;
+				}
+
+				if ( 'encrypted' === $storage_dir['storage'] ) {
+					$original_name = sanitize_file_name( basename( (string) $file['name'] ) );
+					$original_name = $original_name ? $original_name : 'upload.' . $file_ext;
+
+					try {
+						$file_name = bin2hex( random_bytes( 16 ) ) . '-' . time() . '-' . $original_name;
+					} catch ( Throwable $exception ) {
+						wc_add_notice( __( 'File upload failed. Please try again.', 'woo-addon-uploads' ), 'error' );
+						return $cart_item_meta;
+					}
+
+					$encrypted_path = $this->wau_get_encrypted_file_path( $file_name, true );
+					if ( ! $encrypted_path || ! $this->wau_encrypt_and_verify_file( $tmp_name, $file_name ) ) {
+						wc_add_notice( __( 'File upload failed while creating secure encrypted storage. Please try again.', 'woo-addon-uploads' ), 'error' );
+						return $cart_item_meta;
+					}
+
+					$access_key = wp_generate_password( 32, false, false );
+					$addon_id   = array(
+						'file_path'  => $encrypted_path,
+						'file_url'   => '',
+						'file_name'  => $file_name,
+						'storage'    => 'encrypted',
+						'access_key' => $access_key,
+					);
+					$this->wau_mark_upload_pending( $encrypted_path );
+					$cart_item_meta['wau_addon_ids'][] = $addon_id;
+
+					return $cart_item_meta;
+				}
+
+				if ( ! $wp_filesystem ) {
+					wc_add_notice( __( 'File upload failed. Please try again.', 'woo-addon-uploads' ), 'error' );
 					return $cart_item_meta;
 				}
 
@@ -1477,6 +2071,11 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				}
 			}
 
+			$encrypted_path = $this->wau_get_encrypted_file_path( $safe_filename );
+			if ( $encrypted_path && file_exists( $encrypted_path ) && is_file( $encrypted_path ) && $this->wau_is_allowed_upload_path( $encrypted_path ) ) {
+				return $encrypted_path;
+			}
+
 			return false;
 		}
 
@@ -1491,6 +2090,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 		private function wau_is_allowed_upload_path( $file_path ) {
 			$private_upload_dir = $this->wau_get_private_upload_directory();
 			$legacy_upload_dir  = $this->wau_get_legacy_upload_directory();
+			$encrypted_upload_dir = $this->wau_get_encrypted_upload_directory();
 			$directories        = array();
 
 			if ( ! empty( $private_upload_dir['path'] ) ) {
@@ -1499,6 +2099,10 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 
 			if ( ! empty( $legacy_upload_dir['path'] ) ) {
 				$directories[] = $legacy_upload_dir['path'];
+			}
+
+			if ( ! empty( $encrypted_upload_dir['path'] ) ) {
+				$directories[] = $encrypted_upload_dir['path'];
 			}
 
 			foreach ( $directories as $directory ) {
@@ -1557,7 +2161,7 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					wp_die( esc_html__( 'Unauthorized access.', 'woo-addon-uploads' ) );
 				}
 
-				$file_path     = $this->wau_locate_uploaded_file( $safe_filename );
+				$file_path = $this->wau_locate_uploaded_file( $safe_filename );
 
 				// 2. Clear any active output buffers to prevent file corruption/whitespace injections
 				if ( ob_get_level() ) {
@@ -1565,8 +2169,22 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 				}
 
 				if ( $file_path && file_exists( $file_path ) ) {
-					$filetype  = wp_check_filetype( $file_path );
+					$filetype  = wp_check_filetype( $safe_filename );
 					$mime_type = $filetype['type'] ? $filetype['type'] : 'application/octet-stream';
+					$encrypted_metadata = $this->wau_get_encrypted_file_metadata( $file_path );
+					if ( $encrypted_metadata ) {
+						$is_valid = $this->wau_read_encrypted_file(
+							$file_path,
+							$safe_filename,
+							function () {
+								return true;
+							}
+						);
+
+						if ( ! $is_valid ) {
+							wp_die( esc_html__( 'The encrypted file could not be authenticated.', 'woo-addon-uploads' ) );
+						}
+					}
 
 					// Only known passive raster formats may render inline. Other formats are downloads.
 					$inline_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
@@ -1574,10 +2192,24 @@ if ( ! class_exists( 'wau_front_end_class' ) ) {
 					$disposition = ( $is_image && ! isset( $getdata['download'] ) ) ? 'inline' : 'attachment';
 
 					send_nosniff_header();
+					nocache_headers();
 					header( 'Content-Type: ' . $mime_type );
-					header( 'Content-Disposition: ' . $disposition . '; filename="' . basename( $file_path ) . '"' );
-					header( 'Content-Length: ' . filesize( $file_path ) );
-					readfile( $file_path ); // phpcs:ignore
+					header( 'Content-Disposition: ' . $disposition . '; filename="' . $safe_filename . '"' );
+
+					if ( $encrypted_metadata ) {
+						header( 'Content-Length: ' . $encrypted_metadata['size'] );
+						$this->wau_read_encrypted_file(
+							$file_path,
+							$safe_filename,
+							function ( $chunk ) {
+								echo $chunk; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+								return ! connection_aborted();
+							}
+						);
+					} else {
+						header( 'Content-Length: ' . filesize( $file_path ) );
+						readfile( $file_path ); // phpcs:ignore
+					}
 					exit;
 				} else {
 					wp_die( esc_html__( 'File does not exist.', 'woo-addon-uploads' ) );

@@ -131,8 +131,8 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 						<p>
 							<?php esc_html_e( 'Legacy customer files are still present in the public uploads folder. Confirm that direct requests to the path below return 403 or 404 until migration is complete.', 'woo-addon-uploads' ); ?>
 						</p>
-						<?php if ( ! $status['private_storage_ok'] ) : ?>
-							<p><?php esc_html_e( 'Private upload storage is unavailable, so new customer uploads are paused.', 'woo-addon-uploads' ); ?></p>
+						<?php if ( ! $status['private_storage_ok'] && ! $status['encrypted_storage_ok'] ) : ?>
+							<p><?php esc_html_e( 'Private and encrypted storage are unavailable, so new customer uploads are paused.', 'woo-addon-uploads' ); ?></p>
 						<?php endif; ?>
 						<?php if ( $status['uses_nginx_location_rules'] ) : ?>
 							<pre style="background: #f6f6f6; padding: 12px; border: 1px solid #ccc; overflow-x: auto; font-family: monospace; font-size: 13px; line-height: 1.5; color: #333; border-radius: 4px;">
@@ -187,11 +187,13 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 						<tbody>
 							<?php $this->render_status_row( __( 'Private upload storage', 'woo-addon-uploads' ), $status['private_storage_label'], $status['private_storage_ok'] ? 'success' : 'warning' ); ?>
 							<?php $this->render_status_row( __( 'Private upload path', 'woo-addon-uploads' ), $status['private_path'] ? $status['private_path'] : __( 'Not available', 'woo-addon-uploads' ), $status['private_storage_ok'] ? 'info' : 'warning' ); ?>
+							<?php $this->render_status_row( __( 'Encrypted fallback storage', 'woo-addon-uploads' ), $status['encrypted_storage_label'], $status['encrypted_storage_ok'] ? 'success' : 'warning' ); ?>
+							<?php $this->render_status_row( __( 'Encrypted container count', 'woo-addon-uploads' ), (string) $status['encrypted_file_count'], 'info' ); ?>
 							<?php $this->render_status_row( __( 'Manual override', 'woo-addon-uploads' ), "define( 'WAU_PRIVATE_UPLOAD_DIR', '/absolute/private/path/' );", 'info' ); ?>
 							<?php $this->render_status_row( __( 'Legacy upload path', 'woo-addon-uploads' ), $status['legacy_path'], 'info' ); ?>
 							<?php $this->render_status_row( __( 'Legacy upload URL path', 'woo-addon-uploads' ), $status['legacy_url_path'], 'info' ); ?>
 							<?php $this->render_status_row( __( 'Legacy folder exists', 'woo-addon-uploads' ), $status['legacy_exists'] ? __( 'Yes', 'woo-addon-uploads' ) : __( 'No', 'woo-addon-uploads' ), $status['legacy_exists'] ? 'info' : 'success' ); ?>
-							<?php $this->render_status_row( __( 'Legacy file count', 'woo-addon-uploads' ), (string) $status['legacy_file_count'], $status['legacy_file_count'] > 0 ? 'warning' : 'success' ); ?>
+							<?php $this->render_status_row( __( 'Public plaintext file count', 'woo-addon-uploads' ), (string) $status['legacy_file_count'], $status['legacy_file_count'] > 0 ? 'warning' : 'success' ); ?>
 						</tbody>
 					</table>
 
@@ -223,7 +225,7 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 								<?php endforeach; ?>
 							</ul>
 						<?php else : ?>
-							<p><?php esc_html_e( 'No immediate action is required. New uploads are using private storage and legacy files are either migrated or not present.', 'woo-addon-uploads' ); ?></p>
+							<p><?php esc_html_e( 'No immediate security action is required. New uploads are using private storage or authenticated encrypted storage, and no public plaintext customer files remain.', 'woo-addon-uploads' ); ?></p>
 						<?php endif; ?>
 					</div>
 
@@ -253,6 +255,7 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 			$baseurl_path     = empty( $upload_dir['error'] ) ? wp_parse_url( $upload_dir['baseurl'], PHP_URL_PATH ) : '';
 			$legacy_url_path  = trailingslashit( $baseurl_path ? $baseurl_path : '/wp-content/uploads' ) . 'wau-uploads/';
 			$legacy_exists    = $legacy_path && is_dir( $legacy_path );
+			$encrypted_path   = $legacy_path ? trailingslashit( $legacy_path ) . 'encrypted/' . $this->get_site_storage_key() . '/' : '';
 			$private_status   = get_option( 'wau_private_uploads_available' );
 			$private_path     = get_option( 'wau_private_uploads_path' );
 			$private_ok       = ( 'yes' === $private_status && ! empty( $private_path ) && is_dir( $private_path ) && wp_is_writable( $private_path ) );
@@ -264,6 +267,14 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 			$uses_apache        = ( false !== strpos( $server_lower, 'apache' ) || ( false !== strpos( $server_lower, 'litespeed' ) && ! $uses_openlitespeed ) );
 			$server_unknown     = ( empty( $server_lower ) || ( ! $uses_nginx_rules && ! $uses_openlitespeed && ! $uses_caddy && ! $uses_apache ) );
 			$legacy_count     = $legacy_exists ? $this->count_legacy_upload_files( $legacy_path ) : 0;
+			$encrypted_count  = $encrypted_path && is_dir( $encrypted_path ) ? $this->count_encrypted_upload_files( $encrypted_path ) : 0;
+			$encryption_ok    = $this->encrypted_fallback_is_available( $legacy_path, $encrypted_path, $upload_dir );
+			$encoded_key      = get_option( 'wau_encryption_key', '' );
+			$encryption_key   = is_string( $encoded_key ) ? base64_decode( $encoded_key, true ) : false;
+			$key_missing      = $encrypted_count > 0 && ( ! is_string( $encryption_key ) || 32 !== strlen( $encryption_key ) );
+			if ( $key_missing ) {
+				$encryption_ok = false;
+			}
 			$htaccess_status  = $this->get_protection_file_status( $legacy_path . '.htaccess', $this->get_expected_htaccess_content(), $legacy_exists );
 			$web_conf_status  = $this->get_protection_file_status( $legacy_path . 'web.config', $this->get_expected_web_config_content(), $legacy_exists );
 			$batch_size       = absint( apply_filters( 'wau_legacy_upload_migration_batch_size', 25 ) );
@@ -275,6 +286,10 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				'private_storage_ok'       => $private_ok,
 				'private_storage_label'    => $private_ok ? __( 'Available and writable', 'woo-addon-uploads' ) : __( 'Not available or not writable', 'woo-addon-uploads' ),
 				'private_path'             => $private_path,
+				'encrypted_storage_ok'     => $encryption_ok,
+				'encrypted_storage_label'  => $encryption_ok ? __( 'Available with authenticated encryption', 'woo-addon-uploads' ) : ( $key_missing ? __( 'Unavailable: encryption key is missing', 'woo-addon-uploads' ) : __( 'Unavailable', 'woo-addon-uploads' ) ),
+				'encrypted_file_count'     => $encrypted_count,
+				'encryption_key_missing'   => $key_missing,
 				'legacy_path'              => $legacy_path ? $legacy_path : __( 'Unavailable', 'woo-addon-uploads' ),
 				'legacy_url_path'          => $legacy_url_path,
 				'legacy_exists'            => $legacy_exists,
@@ -287,10 +302,10 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				'server_rule_needed'       => $server_needed,
 				'legacy_verification_needed' => $verify_needed,
 				'uses_nginx_location_rules' => $uses_nginx_rules,
-				'migration_complete'       => ( 0 === $legacy_count && $private_ok ),
-				'migration_label'          => $this->get_migration_label( $private_ok, $legacy_count ),
+				'migration_complete'       => ( 0 === $legacy_count ),
+				'migration_label'          => $this->get_migration_label( $private_ok, $encryption_ok, $legacy_count ),
 				'migration_batch_size'     => $batch_size,
-				'has_required_action'      => ( ! $private_ok || $server_needed || $verify_needed || ( $legacy_exists && ( ! $htaccess_status['ok'] || ! $web_conf_status['ok'] ) ) || ( $private_ok && $legacy_count > 0 ) ),
+				'has_required_action'      => ( ( ! $private_ok && ! $encryption_ok ) || $server_needed || $verify_needed || ( $legacy_exists && ( ! $htaccess_status['ok'] || ! $web_conf_status['ok'] ) ) || $legacy_count > 0 ),
 			);
 		}
 
@@ -325,10 +340,14 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 		private function get_system_status_action_items( $status ) {
 			$items = array();
 
-			if ( ! $status['private_storage_ok'] ) {
+			if ( $status['encryption_key_missing'] ) {
+				$items[] = __( 'Encrypted upload containers exist, but their encryption key is missing from the WordPress database. Restore the wau_encryption_key option from a matching database backup. Do not delete the encrypted files or generate a replacement key.', 'woo-addon-uploads' );
+			}
+
+			if ( ! $status['private_storage_ok'] && ! $status['encrypted_storage_ok'] ) {
 				$items[] = sprintf(
 					/* translators: %s: PHP constant example. */
-					__( 'New customer uploads are paused because private storage is unavailable. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path.', 'woo-addon-uploads' ),
+					__( 'New customer uploads are paused because neither private nor encrypted storage is available. Ask your host for a writable private directory outside the public web root, then add %s to wp-config.php with that absolute path.', 'woo-addon-uploads' ),
 					'<code>define( \'WAU_PRIVATE_UPLOAD_DIR\', \'/absolute/private/path/\' );</code>'
 				);
 			}
@@ -357,8 +376,8 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 				$items[] = __( 'The legacy web.config file is missing or outdated. The plugin will try to update it automatically; if it remains outdated, check file permissions on the legacy upload folder.', 'woo-addon-uploads' );
 			}
 
-			if ( $status['private_storage_ok'] && $status['legacy_file_count'] > 0 && ! $status['migration_complete'] ) {
-				$items[] = __( 'Legacy files are still being migrated to private storage in small batches. Keep the plugin active and allow normal site traffic or admin page visits to continue the migration.', 'woo-addon-uploads' );
+			if ( ( $status['private_storage_ok'] || $status['encrypted_storage_ok'] ) && $status['legacy_file_count'] > 0 && ! $status['migration_complete'] ) {
+				$items[] = __( 'Public plaintext files are still being migrated in small batches. Keep the plugin active and allow normal site traffic or admin page visits to continue the migration.', 'woo-addon-uploads' );
 			}
 
 			return $items;
@@ -384,7 +403,7 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 					continue;
 				}
 
-				if ( in_array( strtolower( $file_info->getFilename() ), array( '.htaccess', 'web.config', 'index.php' ), true ) ) {
+				if ( in_array( strtolower( $file_info->getFilename() ), array( '.htaccess', 'web.config', 'index.php' ), true ) || '.wau-pending' === substr( $file_info->getFilename(), -12 ) ) {
 					continue;
 				}
 
@@ -392,6 +411,77 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 			}
 
 			return $count;
+		}
+
+		/**
+		 * Count authenticated encrypted containers.
+		 *
+		 * @param string $encrypted_path Encrypted fallback path.
+		 * @return int
+		 */
+		private function count_encrypted_upload_files( $encrypted_path ) {
+			$count = 0;
+
+			try {
+				$directory = new DirectoryIterator( $encrypted_path );
+			} catch ( Exception $exception ) {
+				return 0;
+			}
+
+			foreach ( $directory as $file_info ) {
+				if ( ! $file_info->isDot() && $file_info->isFile() && '.wau' === strtolower( substr( $file_info->getFilename(), -4 ) ) ) {
+					$count++;
+				}
+			}
+
+			return $count;
+		}
+
+		/**
+		 * Check whether the host can use authenticated encrypted fallback storage.
+		 *
+		 * @param string $legacy_path    Legacy storage path.
+		 * @param string $encrypted_path Encrypted fallback path.
+		 * @param array  $upload_dir     WordPress upload directory data.
+		 * @return bool
+		 */
+		private function encrypted_fallback_is_available( $legacy_path, $encrypted_path, $upload_dir ) {
+			$sodium_available = function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_push' )
+				&& function_exists( 'sodium_crypto_secretstream_xchacha20poly1305_init_pull' );
+			$openssl_available = function_exists( 'openssl_encrypt' )
+				&& function_exists( 'openssl_decrypt' )
+				&& in_array( 'aes-256-gcm', openssl_get_cipher_methods(), true );
+
+			if ( ! $sodium_available && ! $openssl_available ) {
+				return false;
+			}
+
+			if ( $encrypted_path && is_dir( $encrypted_path ) ) {
+				return wp_is_writable( $encrypted_path );
+			}
+
+			if ( $legacy_path && is_dir( $legacy_path ) ) {
+				return wp_is_writable( $legacy_path );
+			}
+
+			return empty( $upload_dir['error'] ) && is_dir( $upload_dir['basedir'] ) && wp_is_writable( $upload_dir['basedir'] );
+		}
+
+		/**
+		 * Build the same site-specific storage key used by the upload handler.
+		 *
+		 * @return string
+		 */
+		private function get_site_storage_key() {
+			$home_url = home_url( '/' );
+			$host     = wp_parse_url( $home_url, PHP_URL_HOST );
+			$host     = $host ? strtolower( $host ) : 'site';
+			$host     = preg_replace( '/[^a-z0-9._-]/', '-', $host );
+			$host     = str_replace( '.', '-', $host );
+			$blog_id  = function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 1;
+			$hash     = substr( hash( 'sha256', $home_url . '|' . ABSPATH . '|' . $blog_id ), 0, 12 );
+
+			return sanitize_file_name( $host . '-' . $blog_id . '-' . $hash );
 		}
 
 		/**
@@ -442,13 +532,14 @@ if ( ! class_exists( 'wau_admin_class' ) ) {
 		/**
 		 * Get migration label.
 		 *
-		 * @param bool $private_ok   Whether private storage is available.
-		 * @param int  $legacy_count Legacy file count.
+		 * @param bool $private_ok    Whether private storage is available.
+		 * @param bool $encryption_ok Whether encrypted fallback is available.
+		 * @param int  $legacy_count  Legacy file count.
 		 * @return string
 		 */
-		private function get_migration_label( $private_ok, $legacy_count ) {
-			if ( ! $private_ok ) {
-				return __( 'Waiting for private storage', 'woo-addon-uploads' );
+		private function get_migration_label( $private_ok, $encryption_ok, $legacy_count ) {
+			if ( ! $private_ok && ! $encryption_ok ) {
+				return __( 'Blocked: no secure storage backend is available', 'woo-addon-uploads' );
 			}
 
 			if ( 0 === $legacy_count ) {
